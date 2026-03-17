@@ -38,57 +38,57 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 ### 🏔️ v1.2.0 — *"The Two Towers"*
 `2026-03-17`
 - ✅ Modal sheet redesign — flex-col structure, header always fully visible
-- ✅ Explicit ✕ close button di semua modal (Minum, Makan, Obat, Luka)
-- ✅ Drag pill affordance di bottom sheet — visual cue bisa di-dismiss
-- ✅ Pull-to-refresh architecture rewrite — wrapper/scroller fully separated
-- ✅ Touch listener pakai `capture:true` — intercept sebelum event sampai ke scroll child
-- ✅ `translateY` dipindah ke non-scrollable wrapper (resolves iOS GPU compositing layer conflict)
-- ⚠️ Pull rubber-band visual effect — gesture terdeteksi & data refreshes, rubber-band UX *in progress*
+- ✅ Explicit ✕ close button on all modals (Drink, Meal, Medication, Wound)
+- ✅ Drag pill affordance on bottom sheet — visual cue that it can be dismissed
+- ✅ Pull-to-refresh architecture rewrite — wrapper and scroller fully separated
+- ✅ Touch listener with `capture:true` — intercepts gesture before scroll child receives it
+- ✅ `translateY` moved to non-scrollable wrapper (resolves iOS GPU compositing layer conflict)
+- ⚠️ Pull rubber-band visual effect — gesture detected & data refreshes correctly, rubber-band UX *in progress*
 
 ### 🏆 v1.1.0 — *"The Shire Calls"*
 `2026-03-17`
-- ✅ Realtime sync — perubahan dari HP lain langsung muncul tanpa refresh
-- ✅ Fixed header — MamiCare header tidak ikut bergerak saat scroll atau pull
-- ✅ Pull-to-refresh gesture — tarik konten ke bawah untuk refresh data
-- ✅ Non-passive touch handler — iOS Safari & Chrome mobile conflict resolved
-- ✅ Pull indicator animasi — icon berputar saat ditarik, "Lepaskan!" saat threshold tercapai
-- ✅ Indicator posisi fixed antara header dan konten — header 100% tidak bergerak
+- ✅ Realtime sync — changes from other devices appear instantly without manual refresh
+- ✅ Fixed header — MamiCare header stays locked during scroll and pull gestures
+- ✅ Pull-to-refresh gesture — drag content down to refresh data
+- ✅ Non-passive touch handler — resolved iOS Safari & Chrome mobile scroll conflict
+- ✅ Animated pull indicator — icon rotates on drag, "Release!" shown at trigger threshold
+- ✅ Indicator sits between header and content — header never moves
 
 ### 🏆 v1.0.0 — *"The One Ring"*
 `2026-03-18`
-- ✅ Supabase cloud sync — semua HP baca/tulis ke DB yang sama
-- ✅ Multi-device confirmed: iPhone + MacBook + any device
-- ✅ User identity — siapa yang log entry (Nyok/Bu Susi/Berry/Meme)
-- ✅ Device info — device apa yang dipakai (📱 iPhone / 💻 Mac)
-- ✅ Wound appearance wajib diisi (button atau free text)
-- ✅ Obat Lainnya button dengan conditional input field
+- ✅ Supabase cloud sync — all devices read and write to the same database
+- ✅ Multi-device confirmed: iPhone + MacBook + any browser
+- ✅ User identity — every entry records who logged it (Nyok / Bu Susi / Berry / Meme)
+- ✅ Device info — records which device was used (📱 iPhone / 💻 Mac)
+- ✅ Wound appearance field is required (quick-select buttons or free text)
+- ✅ "Other Medication" button with conditional text input
 - ✅ 26/26 unit test cases passed (localhost)
-- ✅ Production deployed & stable di mamicare-app.vercel.app
+- ✅ Production deployed & stable at mamicare-app.vercel.app
 
 ### 🏆 v0.3.0 — *"The Two Timelines"*
 `2026-03-17`
-- ✅ Rekap/History screen — lihat semua catatan per hari
-- ✅ Hari ini auto-expand, hari sebelumnya collapsed
-- ✅ Summary badges per hari
-- ✅ PWA update prompt — notif otomatis kalau ada versi baru
+- ✅ Recap / History screen — view all entries grouped by day
+- ✅ Today auto-expands, previous days start collapsed
+- ✅ Daily summary badges (drinks, meals, meds, wound check)
+- ✅ PWA update prompt — automatic notification when a new version is available
 
 ### 🏆 v0.2.1 — *"The Wound That Was"*
 `2026-03-17`
-- ✅ Wound Monitor — kondisi luka harian
-- ✅ Multi-select tampilan luka (kering, basah, bengkak, dll)
-- ✅ Status ganti perban + notes field
+- ✅ Wound Monitor — daily wound condition logging
+- ✅ Multi-select wound appearance (dry, wet, swollen, etc.)
+- ✅ Dressing change status + notes field
 
 ### 🏆 v0.2.0 — *"The Two Loggers"*
 `2026-03-17`
-- ✅ Meal Logger — catat makan, menu, porsi
-- ✅ Medication Logger — preset obat diabetes + custom input
-- ✅ Notes/remarks field di setiap entry
-- ✅ Delete log dengan konfirmasi (anti misclick)
+- ✅ Meal Logger — log meal time, menu, and portion size
+- ✅ Medication Logger — preset diabetes medications + custom input
+- ✅ Notes / remarks field on every entry
+- ✅ Delete entry with confirmation dialog (anti-misclick)
 
 ### 🏆 v0.1.0 — *"There and Back Again"*
 `2026-03-17`
 - ✅ Project scaffolded (Vite 6 + React + Tailwind)
-- ✅ Drink Logger — log jenis & jumlah minum
+- ✅ Drink Logger — log drink type and volume
 - ✅ Daily drink counter with progress bar
 - ✅ Data persisted via localStorage
 - ✅ Deployed live → mamicare-app.vercel.app
@@ -98,16 +98,16 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 ## 🔭 The Road Goes Ever On (Roadmap)
 
 ### 🧭 v1.2.1 — *"The Paths of the Dead"* *(next)*
-- [ ] 🫳 Pull-to-refresh rubber-band visual — content stretches & snaps back natively
+- [ ] 🫳 Pull-to-refresh rubber-band — content stretches and snaps back natively on drag
 
 ### 🏰 v1.3.0 — *"The Palantír"*
-- [ ] 🔔 Push notification reminders — waktunya obat, waktunya minum
-- [ ] 📊 Dashboard Berry — grafik mingguan minum & makan
-- [ ] 🚨 Alert kalau minum kurang dari target
+- [ ] 🔔 Push notification reminders — medication time, drink reminders
+- [ ] 📊 Berry's Dashboard — weekly drink and meal trend charts
+- [ ] 🚨 Alert when daily water intake falls below target
 
 ### 👑 v1.4.0 — *"The Scouring of the Shire"*
-- [ ] 📄 Export PDF untuk dokter
-- [ ] 📸 Foto luka — upload & lihat progress
+- [ ] 📄 PDF export for doctor appointments
+- [ ] 📸 Wound photo upload — visual progress over time
 
 ---
 
@@ -125,4 +125,3 @@ Open `http://localhost:5173`
 
 > *"I can't carry the app for you — but I can carry you."*
 > — Samwise Gamgee, probably, about Supabase
-
