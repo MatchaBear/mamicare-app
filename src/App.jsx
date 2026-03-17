@@ -1,3 +1,4 @@
+import { RefreshCw } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import { supabase } from './supabase'
@@ -804,6 +805,16 @@ export default function App() {
                 </button>
               )
             })()}
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="bg-gray-100 text-gray-600 px-3 py-2 rounded-full active:bg-gray-200"
+            >
+              <RefreshCw
+                size={18}
+                className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-500'}
+              />
+            </button>
             <button
               onClick={() => setScreen('rekap')}
               className="bg-gray-100 text-gray-600 font-semibold text-sm px-4 py-2 rounded-full active:bg-gray-200"
