@@ -825,20 +825,24 @@ export default function App() {
         </div>
       </div>
 
-      {refreshing && (
-        <div className="flex justify-center py-3">
-          <div className="text-gray-400 text-sm animate-spin">🌸</div>
-        </div>
-      )}
       <div
-        className="px-4 pt-5 pb-32"
+        className="px-4 pt-5 pb-32 overflow-y-auto"
         onTouchStart={e => { e._startY = e.touches[0].clientY }}
         onTouchEnd={e => {
           const diff = e.changedTouches[0].clientY - e._startY
           if (diff > 80 && !refreshing) handleRefresh()
         }}
-      >        <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
+      >
+        {refreshing && (
+          <div className="flex justify-center items-center py-4 mb-2">
+            <div className="flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-md">
+              <RefreshCw size={16} className="animate-spin text-sky-400" />
+              <span className="text-sm text-gray-500">Memperbarui...</span>
+            </div>
+          </div>
+        )}
 
+        <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
         <div className="grid grid-cols-3 gap-3 mb-6">
           {[
             { id: 'meal', emoji: '🍽️', label: 'Makan', color: 'bg-orange-50 border-orange-300 text-orange-700' },
