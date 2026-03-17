@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useRegisterSW } from 'virtual:pwa-register/react'
 
 // ─── Helpers ────────────────────────────────────────────────
 const today = () => new Date().toISOString().split('T')[0]
@@ -12,6 +13,25 @@ function loadLogs() {
 }
 function saveLogs(logs) {
   localStorage.setItem('mamicare_logs', JSON.stringify(logs))
+}
+
+// ─── PWA Update Prompt ───────────────────────────────────────
+function UpdatePrompt() {
+  const { needRefresh: [needRefresh], updateServiceWorker } = useRegisterSW()
+  if (!needRefresh) return null
+  return (
+    <div className="fixed bottom-6 left-4 right-4 z-50">
+      <div className="bg-gray-800 text-white rounded-2xl px-5 py-4 flex items-center justify-between shadow-xl">
+        <p className="text-sm font-medium">🆕 Ada versi terbaru!</p>
+        <button
+          onClick={() => updateServiceWorker(true)}
+          className="bg-sky-500 text-white text-sm font-bold px-4 py-2 rounded-xl ml-4 active:bg-sky-600"
+        >
+          Perbarui
+        </button>
+      </div>
+    </div>
+  )
 }
 
 // ─── Reusable: Notes Field ───────────────────────────────────
@@ -416,11 +436,143 @@ function TodayTimeline({ logs, onDeleteRequest }) {
   )
 }
 
+// ─── Rekap Screen ────────────────────────────────────────────
+function RekapScreen({ logs, onBack }) {
+  const icons = { drink: '💧', meal: '🍽️', med: '💊', wound: '🩹' }
+  const labels = { drink: 'Minum', meal: 'Makan', med: 'Obat', wound: 'Luka' }
+
+  // Group logs by date, sorted newest first
+  const grouped = logs.reduce((acc, log) => {
+    if (!acc[log.date]) acc[log.date] = []
+    acc[log.date].push(log)
+    return acc
+  }, {})
+
+  const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a))
+
+  function formatDate(dateStr) {
+    const date = new Date(dateStr + 'T00:00:00')
+    const todayStr = today()
+    const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+    if (dateStr === todayStr) return 'Hari Ini'
+    if (dateStr === yesterdayStr) return 'Kemarin'
+    return date.toLocaleDateString('id-ID', {
+      weekday: 'long', day: 'numeric', month: 'long'
+    })
+  }
+
+  function DaySummaryBadges({ dayLogs }) {
+    const drinkTotal = dayLogs
+      .filter(l => l.type === 'drink')
+      .reduce((s, l) => s + l.amount, 0)
+    const mealCount = dayLogs.filter(l => l.type === 'meal').length
+    const medCount = dayLogs.filter(l => l.type === 'med').length
+    const woundLog = dayLogs.find(l => l.type === 'wound')
+
+    return (
+      <div className="flex gap-2 flex-wrap mt-2">
+        {drinkTotal > 0 && (
+          <span className="bg-sky-100 text-sky-700 text-xs font-medium px-3 py-1 rounded-full">
+            💧 {drinkTotal} gelas
+          </span>
+        )}
+        {mealCount > 0 && (
+          <span className="bg-orange-100 text-orange-700 text-xs font-medium px-3 py-1 rounded-full">
+            🍽️ {mealCount}x makan
+          </span>
+        )}
+        {medCount > 0 && (
+          <span className="bg-purple-100 text-purple-700 text-xs font-medium px-3 py-1 rounded-full">
+            💊 {medCount}x obat
+          </span>
+        )}
+        {woundLog && (
+          <span className="bg-rose-100 text-rose-700 text-xs font-medium px-3 py-1 rounded-full">
+            🩹 Luka dicek
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  function DayCard({ dateStr, dayLogs }) {
+    const [expanded, setExpanded] = useState(dateStr === today())
+    const sorted = [...dayLogs].sort((a, b) => b.timestamp - a.timestamp)
+
+    return (
+      <div className="bg-white rounded-2xl shadow-sm mb-4 overflow-hidden">
+        {/* Day header — tap to expand/collapse */}
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="w-full px-5 py-4 flex items-center justify-between"
+        >
+          <div className="text-left">
+            <p className="font-bold text-gray-800 text-lg capitalize">{formatDate(dateStr)}</p>
+            <DaySummaryBadges dayLogs={dayLogs} />
+          </div>
+          <span className={`text-gray-400 text-xl transition-transform ${expanded ? 'rotate-180' : ''}`}>
+            ▾
+          </span>
+        </button>
+
+        {/* Expanded log entries */}
+        {expanded && (
+          <div className="border-t border-gray-100 divide-y divide-gray-50">
+            {sorted.map(log => (
+              <div key={log.id} className="flex items-start gap-3 px-5 py-3">
+                <span className="text-2xl mt-0.5">{icons[log.type]}</span>
+                <div className="flex-1">
+                  <p className="font-semibold text-gray-700">{labels[log.type]}</p>
+                  <p className="text-gray-500 text-sm">{log.summary}</p>
+                  {log.notes ? (
+                    <p className="text-gray-400 text-sm italic mt-0.5">📝 {log.notes}</p>
+                  ) : null}
+                </div>
+                <p className="text-gray-400 text-sm shrink-0">{log.time}</p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white px-5 pt-12 pb-4 shadow-sm flex items-center gap-3">
+        <button
+          onClick={onBack}
+          className="text-sky-500 text-lg font-semibold"
+        >
+          ← Kembali
+        </button>
+        <h1 className="text-2xl font-black text-gray-800">📋 Rekap</h1>
+      </div>
+
+      <div className="px-4 pt-5 pb-32">
+        {sortedDates.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">
+            <p className="text-5xl mb-3">📭</p>
+            <p className="text-lg">Belum ada catatan sama sekali</p>
+          </div>
+        ) : (
+          sortedDates.map(dateStr => (
+            <DayCard key={dateStr} dateStr={dateStr} dayLogs={grouped[dateStr]} />
+          ))
+        )}
+      </div>
+      <UpdatePrompt />
+    </div>
+  )
+}
+
 // ─── Main App ────────────────────────────────────────────────
 export default function App() {
   const [logs, setLogs] = useState(loadLogs)
-  const [modal, setModal] = useState(null)       // 'drink' | 'meal' | 'med' | null
+  const [modal, setModal] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
+  const [screen, setScreen] = useState('home')   // 'home' | 'rekap'
 
   useEffect(() => { saveLogs(logs) }, [logs])
 
@@ -439,7 +591,6 @@ export default function App() {
     setDeleteTarget(null)
   }
 
-  // ── Save handlers ──
   function handleDrinkSave({ type, amount, notes }) {
     const typeLabels = { water: 'Air Putih', tea: 'Teh', juice: 'Jus', soup: 'Kuah/Sup' }
     addLog({ type: 'drink', amount, notes, summary: `${typeLabels[type]} · ${amount} gelas` })
@@ -450,8 +601,7 @@ export default function App() {
     const mealLabels = { breakfast: 'Sarapan', lunch: 'Makan Siang', dinner: 'Makan Malam', snack: 'Camilan' }
     const portionLabels = { small: 'Sedikit', medium: 'Normal', large: 'Banyak' }
     addLog({
-      type: 'meal',
-      notes,
+      type: 'meal', notes,
       summary: `${mealLabels[mealType]} · ${foodText} (${portionLabels[portion]})`,
     })
     setModal(null)
@@ -459,11 +609,7 @@ export default function App() {
 
   function handleMedSave({ medName, status, notes }) {
     const statusLabels = { taken: 'Sudah diminum', skipped: 'Tidak diminum', half: 'Setengah dosis' }
-    addLog({
-      type: 'med',
-      notes,
-      summary: `${medName} · ${statusLabels[status]}`,
-    })
+    addLog({ type: 'med', notes, summary: `${medName} · ${statusLabels[status]}` })
     setModal(null)
   }
 
@@ -476,11 +622,8 @@ export default function App() {
     const appearanceText = appearance.length > 0
       ? appearance.map(a => appearanceLabels[a]).join(', ')
       : 'Tidak ada keluhan khusus'
-
     addLog({
-      type: 'wound',
-      notes,
-      dressingChanged,
+      type: 'wound', notes, dressingChanged,
       summary: `${conditionLabels[condition]} · ${appearanceText} · Perban: ${dressingChanged ? 'Diganti' : 'Belum diganti'}`,
     })
     setModal(null)
@@ -490,19 +633,32 @@ export default function App() {
     weekday: 'long', day: 'numeric', month: 'long'
   })
 
+  // ── Show Rekap screen ──
+  if (screen === 'rekap') {
+    return <RekapScreen logs={logs} onBack={() => setScreen('home')} />
+  }
+
+  // ── Home screen ──
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white px-5 pt-12 pb-4 shadow-sm">
         <p className="text-gray-400 text-sm capitalize">{dateStr}</p>
-        <h1 className="text-2xl font-black text-gray-800">🌸 MamiCare</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-black text-gray-800">🌸 MamiCare</h1>
+          <button
+            onClick={() => setScreen('rekap')}
+            className="bg-gray-100 text-gray-600 font-semibold text-sm px-4 py-2 rounded-full active:bg-gray-200"
+          >
+            📋 Rekap
+          </button>
+        </div>
       </div>
 
       {/* Content */}
       <div className="px-4 pt-5 pb-32">
         <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
 
-        {/* Quick actions */}
         <div className="grid grid-cols-3 gap-3 mb-6">
           {[
             { id: 'meal', emoji: '🍽️', label: 'Makan', color: 'bg-orange-50 border-orange-300 text-orange-700' },
@@ -511,32 +667,24 @@ export default function App() {
           ].map(btn => (
             <button
               key={btn.id}
-              disabled={btn.disabled}
-              onClick={() => !btn.disabled && setModal(btn.id)}
-              className={`${btn.color} border-2 rounded-2xl py-5 flex flex-col items-center gap-1 ${btn.disabled ? 'opacity-40' : 'active:scale-95 transition-transform'}`}
+              onClick={() => setModal(btn.id)}
+              className={`${btn.color} border-2 rounded-2xl py-5 flex flex-col items-center gap-1 active:scale-95 transition-transform`}
             >
               <span className="text-3xl">{btn.emoji}</span>
               <span className="text-sm font-semibold">{btn.label}</span>
-              {btn.disabled && <span className="text-xs opacity-70">Segera hadir</span>}
             </button>
           ))}
         </div>
 
-        {/* Timeline */}
         <h2 className="text-lg font-bold text-gray-700 mb-3">Catatan Hari Ini</h2>
-        <TodayTimeline
-          logs={logs}
-          onDeleteRequest={setDeleteTarget}
-        />
+        <TodayTimeline logs={logs} onDeleteRequest={setDeleteTarget} />
       </div>
 
-      {/* Modals */}
       {modal === 'drink' && <DrinkModal onClose={() => setModal(null)} onSave={handleDrinkSave} />}
       {modal === 'meal' && <MealModal onClose={() => setModal(null)} onSave={handleMealSave} />}
       {modal === 'med' && <MedModal onClose={() => setModal(null)} onSave={handleMedSave} />}
       {modal === 'wound' && <WoundModal onClose={() => setModal(null)} onSave={handleWoundSave} />}
 
-      {/* Delete confirmation */}
       {deleteTarget && (
         <DeleteConfirmModal
           log={deleteTarget}
@@ -544,6 +692,7 @@ export default function App() {
           onCancel={() => setDeleteTarget(null)}
         />
       )}
+      <UpdatePrompt />
     </div>
   )
 }
