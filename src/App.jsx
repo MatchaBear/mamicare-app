@@ -11,30 +11,45 @@ const nowTime = () => new Date().toLocaleTimeString('id-ID', {
 
 // ─── User Identity ───────────────────────────────────────────
 const USERS = [
-  { id: 'nyok', name: 'Nyok', emoji: '👵' },
-  { id: 'susi', name: 'Sus Susi', emoji: '🧑‍🍳' },
-  { id: 'berry', name: 'Berry', emoji: '🧙' },
-  { id: 'meme', name: 'Mega', emoji: '👩' },
+  { id: 'nyok',  name: 'Nyok',     emoji: '👵' },
+  { id: 'susi',  name: 'Sus Susi', emoji: '🧑‍🍳' },
+  { id: 'berry', name: 'Berry',    emoji: '🧙'  },
+  { id: 'meme',  name: 'Mega',     emoji: '👩'  },
 ]
 
 function getCurrentUser() {
   return localStorage.getItem('mamicare_user') || null
 }
-
-function getDeviceInfo() {
-  const ua = navigator.userAgent
-  if (/iPhone/.test(ua)) return '📱 iPhone'
-  if (/iPad/.test(ua)) return '📱 iPad'
-  if (/Android/.test(ua)) return '📱 Android'
-  if (/Mac/.test(ua)) return '💻 Mac'
-  if (/Windows/.test(ua)) return '🖥️ Windows'
-  return '🌐 Browser'
-}
-
 function setCurrentUser(userId) {
   localStorage.setItem('mamicare_user', userId)
 }
+function getDeviceInfo() {
+  const ua = navigator.userAgent
+  if (/iPhone/.test(ua))   return '📱 iPhone'
+  if (/iPad/.test(ua))     return '📱 iPad'
+  if (/Android/.test(ua))  return '📱 Android'
+  if (/Mac/.test(ua))      return '💻 Mac'
+  if (/Windows/.test(ua))  return '🖥️ Windows'
+  return '🌐 Browser'
+}
 
+// ─── Supabase ops ────────────────────────────────────────────
+async function loadLogs() {
+  const { data, error } = await supabase
+    .from('logs').select('*').order('timestamp', { ascending: false })
+  if (error) { console.error(error); return [] }
+  return data || []
+}
+async function saveLog(log) {
+  const { error } = await supabase.from('logs').upsert(log)
+  if (error) console.error(error)
+}
+async function deleteLog(id) {
+  const { error } = await supabase.from('logs').delete().eq('id', id)
+  if (error) console.error(error)
+}
+
+// ─── UserPickerScreen ────────────────────────────────────────
 function UserPickerScreen({ onPicked }) {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
@@ -55,25 +70,6 @@ function UserPickerScreen({ onPicked }) {
       </div>
     </div>
   )
-}
-
-async function loadLogs() {
-  const { data, error } = await supabase
-    .from('logs')
-    .select('*')
-    .order('timestamp', { ascending: false })
-  if (error) { console.error(error); return [] }
-  return data || []
-}
-
-async function saveLog(log) {
-  const { error } = await supabase.from('logs').upsert(log)
-  if (error) console.error(error)
-}
-
-async function deleteLog(id) {
-  const { error } = await supabase.from('logs').delete().eq('id', id)
-  if (error) console.error(error)
 }
 
 // ─── PWA Update Prompt ───────────────────────────────────────
@@ -112,28 +108,40 @@ function NotesField({ value, onChange }) {
 }
 
 // ─── Reusable: Modal Shell ───────────────────────────────────
-// Explicit ✕ close button baked in — Bu Susi and Nyok should NOT have
-// to discover that tapping the backdrop closes the modal.
+// Structure: flex-col sheet.
+//   • Pill + header row = flex-shrink-0 → ALWAYS visible, never inside a scroll container
+//   • Content area = flex-1 overflow-y-auto → only this scrolls
+// This eliminates iOS Safari sticky issues and notch/Dynamic Island clipping.
 function ModalShell({ onClose, title, children }) {
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-end z-50" onClick={onClose}>
+    <div
+      className="fixed inset-0 bg-black/60 flex items-end z-50"
+      onClick={onClose}
+    >
       <div
-        className="bg-white w-full rounded-t-3xl max-h-[92vh] overflow-y-auto"
+        className="bg-white w-full rounded-t-3xl flex flex-col"
+        style={{ maxHeight: '88vh' }}
         onClick={e => e.stopPropagation()}
       >
-        {/* Modal header: title + explicit close button */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-2 sticky top-0 bg-white z-10 border-b border-gray-100">
+        {/* ── Drag pill ── visual affordance that this sheet can be dismissed */}
+        <div className="flex justify-center pt-3 pb-0 flex-shrink-0">
+          <div className="w-10 h-1.5 bg-gray-300 rounded-full" />
+        </div>
+
+        {/* ── Header row — flex-shrink-0, lives OUTSIDE scroll container ── */}
+        <div className="flex items-center justify-between px-6 pt-4 pb-3 flex-shrink-0 border-b border-gray-100">
           <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
           <button
             onClick={onClose}
-            className="bg-gray-100 hover:bg-gray-200 active:bg-gray-300 rounded-full p-2 transition-colors"
+            className="bg-gray-100 active:bg-gray-200 rounded-full p-2.5 transition-colors"
             aria-label="Tutup"
           >
-            <X size={22} className="text-gray-500" />
+            <X size={20} className="text-gray-500" />
           </button>
         </div>
-        {/* Content */}
-        <div className="px-6 pb-10 pt-4">
+
+        {/* ── Scrollable content — only this area scrolls ── */}
+        <div className="flex-1 overflow-y-auto px-6 pt-5 pb-10">
           {children}
         </div>
       </div>
@@ -149,10 +157,11 @@ function OptionGroup({ options, selected, onSelect, cols = 2 }) {
         <button
           key={opt.id}
           onClick={() => onSelect(opt.id)}
-          className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${selected === opt.id
-            ? 'bg-sky-500 text-white border-sky-500'
-            : 'bg-white text-gray-700 border-gray-200'
-            }`}
+          className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${
+            selected === opt.id
+              ? 'bg-sky-500 text-white border-sky-500'
+              : 'bg-white text-gray-700 border-gray-200'
+          }`}
         >
           {opt.label}
         </button>
@@ -166,38 +175,31 @@ function SaveButton({ canSave, onSave }) {
   return (
     <button
       onClick={() => canSave && onSave()}
-      className={`w-full py-5 text-xl font-bold rounded-2xl transition-all ${canSave
-        ? 'bg-sky-500 text-white active:bg-sky-600'
-        : 'bg-gray-100 text-gray-400'
-        }`}
+      className={`w-full py-5 text-xl font-bold rounded-2xl transition-all ${
+        canSave
+          ? 'bg-sky-500 text-white active:bg-sky-600'
+          : 'bg-gray-100 text-gray-400'
+      }`}
     >
       ✅ SIMPAN
     </button>
   )
 }
 
-// ─── Delete Confirmation Modal ───────────────────────────────
+// ─── Delete Confirm Modal ────────────────────────────────────
 function DeleteConfirmModal({ log, onConfirm, onCancel }) {
   const icons = { drink: '💧', meal: '🍽️', med: '💊', wound: '🩹' }
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-6">
       <div className="bg-white rounded-3xl p-6 w-full max-w-sm">
         <p className="text-5xl text-center mb-4">{icons[log.type]}</p>
-        <h3 className="text-xl font-bold text-gray-800 text-center mb-2">
-          Hapus catatan ini?
-        </h3>
+        <h3 className="text-xl font-bold text-gray-800 text-center mb-2">Hapus catatan ini?</h3>
         <p className="text-gray-500 text-center mb-6">{log.summary}</p>
         <div className="grid grid-cols-2 gap-3">
-          <button
-            onClick={onCancel}
-            className="py-4 text-lg rounded-2xl border-2 border-gray-200 text-gray-600 font-medium"
-          >
+          <button onClick={onCancel} className="py-4 text-lg rounded-2xl border-2 border-gray-200 text-gray-600 font-medium">
             Batal
           </button>
-          <button
-            onClick={onConfirm}
-            className="py-4 text-lg rounded-2xl bg-red-500 text-white font-bold"
-          >
+          <button onClick={onConfirm} className="py-4 text-lg rounded-2xl bg-red-500 text-white font-bold">
             🗑️ Hapus
           </button>
         </div>
@@ -208,20 +210,20 @@ function DeleteConfirmModal({ log, onConfirm, onCancel }) {
 
 // ─── Drink Modal ─────────────────────────────────────────────
 function DrinkModal({ onClose, onSave }) {
-  const [type, setType] = useState(null)
+  const [type, setType]     = useState(null)
   const [amount, setAmount] = useState(null)
-  const [notes, setNotes] = useState('')
+  const [notes, setNotes]   = useState('')
 
   const drinkTypes = [
     { id: 'water', label: '💧 Air Putih' },
-    { id: 'tea', label: '🍵 Teh' },
-    { id: 'juice', label: '🥤 Jus' },
-    { id: 'soup', label: '🍲 Kuah/Sup' },
+    { id: 'tea',   label: '🍵 Teh'       },
+    { id: 'juice', label: '🥤 Jus'       },
+    { id: 'soup',  label: '🍲 Kuah/Sup'  },
   ]
   const amounts = [
     { id: 0.5, label: '½ gelas' },
-    { id: 1, label: '1 gelas' },
-    { id: 2, label: '2 gelas' },
+    { id: 1,   label: '1 gelas' },
+    { id: 2,   label: '2 gelas' },
   ]
 
   return (
@@ -240,28 +242,25 @@ function DrinkModal({ onClose, onSave }) {
 function MealModal({ onClose, onSave }) {
   const [mealType, setMealType] = useState(null)
   const [foodText, setFoodText] = useState('')
-  const [portion, setPortion] = useState(null)
-  const [notes, setNotes] = useState('')
+  const [portion, setPortion]   = useState(null)
+  const [notes, setNotes]       = useState('')
 
   const mealTypes = [
-    { id: 'breakfast', label: '🌅 Sarapan' },
-    { id: 'lunch', label: '☀️ Makan Siang' },
-    { id: 'dinner', label: '🌙 Makan Malam' },
-    { id: 'snack', label: '🍪 Camilan' },
+    { id: 'breakfast', label: '🌅 Sarapan'     },
+    { id: 'lunch',     label: '☀️ Makan Siang' },
+    { id: 'dinner',    label: '🌙 Makan Malam' },
+    { id: 'snack',     label: '🍪 Camilan'     },
   ]
   const portions = [
-    { id: 'small', label: '🥣 Sedikit' },
-    { id: 'medium', label: '🍽️ Normal' },
-    { id: 'large', label: '🫕 Banyak' },
+    { id: 'small',  label: '🥣 Sedikit' },
+    { id: 'medium', label: '🍽️ Normal'  },
+    { id: 'large',  label: '🫕 Banyak'  },
   ]
-
-  const canSave = mealType && foodText.trim().length > 0 && portion
 
   return (
     <ModalShell onClose={onClose} title="🍽️ Catat Makan">
       <p className="text-gray-500 text-lg mb-3">Waktu makan?</p>
       <OptionGroup options={mealTypes} selected={mealType} onSelect={setMealType} cols={2} />
-
       <p className="text-gray-500 text-lg mb-3">Menu apa?</p>
       <textarea
         value={foodText}
@@ -270,13 +269,11 @@ function MealModal({ onClose, onSave }) {
         rows={3}
         className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 resize-none focus:outline-none focus:border-sky-400 mb-6"
       />
-
       <p className="text-gray-500 text-lg mb-3">Porsinya?</p>
       <OptionGroup options={portions} selected={portion} onSelect={setPortion} cols={3} />
-
       <NotesField value={notes} onChange={setNotes} />
       <SaveButton
-        canSave={canSave}
+        canSave={mealType && foodText.trim().length > 0 && portion}
         onSave={() => onSave({ mealType, foodText, portion, notes })}
       />
     </ModalShell>
@@ -287,21 +284,15 @@ function MealModal({ onClose, onSave }) {
 function MedModal({ onClose, onSave }) {
   const [medName, setMedName] = useState('')
   const [isOther, setIsOther] = useState(false)
-  const [status, setStatus] = useState(null)
-  const [notes, setNotes] = useState('')
+  const [status, setStatus]   = useState(null)
+  const [notes, setNotes]     = useState('')
 
-  const presets = [
-    'Metformin', 'Glibenclamide', 'Glimepiride',
-    'Insulin', 'Acarbose', 'Vitamin B12',
-  ]
-
+  const presets = ['Metformin','Glibenclamide','Glimepiride','Insulin','Acarbose','Vitamin B12']
   const statuses = [
-    { id: 'taken', label: '✅ Sudah Minum' },
-    { id: 'skipped', label: '❌ Tidak Minum' },
-    { id: 'half', label: '½ Setengah Dosis' },
+    { id: 'taken',   label: '✅ Sudah Minum'    },
+    { id: 'skipped', label: '❌ Tidak Minum'    },
+    { id: 'half',    label: '½ Setengah Dosis' },
   ]
-
-  const canSave = medName.trim().length > 0 && status
 
   return (
     <ModalShell onClose={onClose} title="💊 Catat Obat">
@@ -311,20 +302,22 @@ function MedModal({ onClose, onSave }) {
           <button
             key={p}
             onClick={() => { setMedName(p); setIsOther(false) }}
-            className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${medName === p && !isOther
-              ? 'bg-purple-500 text-white border-purple-500'
-              : 'bg-white text-gray-600 border-gray-200'
-              }`}
+            className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${
+              medName === p && !isOther
+                ? 'bg-purple-500 text-white border-purple-500'
+                : 'bg-white text-gray-600 border-gray-200'
+            }`}
           >
             {p}
           </button>
         ))}
         <button
           onClick={() => { setMedName(''); setIsOther(true) }}
-          className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${isOther
-            ? 'bg-purple-500 text-white border-purple-500'
-            : 'bg-white text-gray-600 border-gray-200'
-            }`}
+          className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${
+            isOther
+              ? 'bg-purple-500 text-white border-purple-500'
+              : 'bg-white text-gray-600 border-gray-200'
+          }`}
         >
           ✏️ Obat Lainnya
         </button>
@@ -338,67 +331,61 @@ function MedModal({ onClose, onSave }) {
           className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-purple-400 mb-6"
         />
       )}
-
       <p className="text-gray-500 text-lg mb-3">Status?</p>
       <OptionGroup options={statuses} selected={status} onSelect={setStatus} cols={1} />
-
       <NotesField value={notes} onChange={setNotes} />
-      <SaveButton canSave={canSave} onSave={() => onSave({ medName, status, notes })} />
+      <SaveButton canSave={medName.trim().length > 0 && status} onSave={() => onSave({ medName, status, notes })} />
     </ModalShell>
   )
 }
 
 // ─── Wound Modal ─────────────────────────────────────────────
 function WoundModal({ onClose, onSave }) {
-  const [condition, setCondition] = useState(null)
-  const [appearance, setAppearance] = useState([])
+  const [condition, setCondition]           = useState(null)
+  const [appearance, setAppearance]         = useState([])
   const [appearanceOther, setAppearanceOther] = useState('')
   const [dressingChanged, setDressingChanged] = useState(null)
-  const [notes, setNotes] = useState('')
+  const [notes, setNotes]                   = useState('')
 
   const conditions = [
     { id: 'better', label: '😊 Lebih Baik' },
-    { id: 'same', label: '😐 Sama Saja' },
-    { id: 'worse', label: '😟 Memburuk' },
+    { id: 'same',   label: '😐 Sama Saja'  },
+    { id: 'worse',  label: '😟 Memburuk'   },
   ]
-
   const appearanceOptions = [
-    { id: 'dry', label: '🏜️ Kering' },
-    { id: 'wet', label: '💦 Basah' },
-    { id: 'swollen', label: '🫧 Bengkak' },
-    { id: 'redness', label: '🔴 Kemerahan' },
+    { id: 'dry',       label: '🏜️ Kering'    },
+    { id: 'wet',       label: '💦 Basah'      },
+    { id: 'swollen',   label: '🫧 Bengkak'    },
+    { id: 'redness',   label: '🔴 Kemerahan'  },
     { id: 'discharge', label: '🟡 Ada Cairan' },
-    { id: 'smell', label: '👃 Berbau' },
+    { id: 'smell',     label: '👃 Berbau'     },
   ]
 
   function toggleAppearance(id) {
-    setAppearance(prev =>
-      prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id]
-    )
+    setAppearance(prev => prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id])
   }
 
-  const canSave = condition && dressingChanged !== null && (appearance.length > 0 || appearanceOther.trim().length > 0)
+  const canSave = condition && dressingChanged !== null &&
+    (appearance.length > 0 || appearanceOther.trim().length > 0)
 
   return (
     <ModalShell onClose={onClose} title="🩹 Cek Kondisi Luka">
       <p className="text-gray-500 text-lg mb-3">Kondisi hari ini?</p>
-      <OptionGroup
-        options={conditions}
-        selected={condition}
-        onSelect={setCondition}
-        cols={3}
-      />
+      <OptionGroup options={conditions} selected={condition} onSelect={setCondition} cols={3} />
 
-      <p className="text-gray-500 text-lg mb-3">Tampilan luka? <span className="text-sm">(pilih semua yang sesuai)</span></p>
+      <p className="text-gray-500 text-lg mb-3">
+        Tampilan luka? <span className="text-sm">(pilih semua yang sesuai)</span>
+      </p>
       <div className="grid grid-cols-2 gap-3 mb-4">
         {appearanceOptions.map(opt => (
           <button
             key={opt.id}
             onClick={() => toggleAppearance(opt.id)}
-            className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${appearance.includes(opt.id)
-              ? 'bg-rose-500 text-white border-rose-500'
-              : 'bg-white text-gray-700 border-gray-200'
-              }`}
+            className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${
+              appearance.includes(opt.id)
+                ? 'bg-rose-500 text-white border-rose-500'
+                : 'bg-white text-gray-700 border-gray-200'
+            }`}
           >
             {opt.label}
           </button>
@@ -415,16 +402,17 @@ function WoundModal({ onClose, onSave }) {
       <p className="text-gray-500 text-lg mb-3">Ganti perban hari ini?</p>
       <div className="grid grid-cols-2 gap-3 mb-6">
         {[
-          { id: true, label: '✅ Sudah Ganti' },
+          { id: true,  label: '✅ Sudah Ganti'   },
           { id: false, label: '⏭️ Belum Ganti' },
         ].map(opt => (
           <button
             key={String(opt.id)}
             onClick={() => setDressingChanged(opt.id)}
-            className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${dressingChanged === opt.id
-              ? 'bg-sky-500 text-white border-sky-500'
-              : 'bg-white text-gray-700 border-gray-200'
-              }`}
+            className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${
+              dressingChanged === opt.id
+                ? 'bg-sky-500 text-white border-sky-500'
+                : 'bg-white text-gray-700 border-gray-200'
+            }`}
           >
             {opt.label}
           </button>
@@ -440,10 +428,10 @@ function WoundModal({ onClose, onSave }) {
 // ─── Drink Card ──────────────────────────────────────────────
 function DrinkCard({ logs, onAdd }) {
   const todayDrinks = logs.filter(l => l.type === 'drink' && l.date === today())
-  const totalCups = todayDrinks.reduce((sum, l) => sum + l.amount, 0)
-  const goal = 8
-  const pct = Math.min((totalCups / goal) * 100, 100)
-  const colorClass = totalCups < 4
+  const totalCups   = todayDrinks.reduce((sum, l) => sum + l.amount, 0)
+  const goal        = 8
+  const pct         = Math.min((totalCups / goal) * 100, 100)
+  const colorClass  = totalCups < 4
     ? 'from-sky-400 to-blue-500'
     : totalCups < goal
       ? 'from-sky-500 to-cyan-400'
@@ -461,14 +449,11 @@ function DrinkCard({ logs, onAdd }) {
         <span className="text-4xl">💧</span>
       </div>
       <div className="bg-white/30 rounded-full h-3 mb-4">
-        <div
-          className="bg-white rounded-full h-3 transition-all duration-500"
-          style={{ width: `${pct}%` }}
-        />
+        <div className="bg-white rounded-full h-3 transition-all duration-500" style={{ width: `${pct}%` }} />
       </div>
       <button
         onClick={onAdd}
-        className="w-full bg-white/20 hover:bg-white/30 active:bg-white/40 border border-white/40 rounded-2xl py-3 text-lg font-semibold transition-all"
+        className="w-full bg-white/20 active:bg-white/40 border border-white/40 rounded-2xl py-3 text-lg font-semibold"
       >
         + Tambah Minum
       </button>
@@ -491,7 +476,7 @@ function TodayTimeline({ logs, onDeleteRequest }) {
     )
   }
 
-  const icons = { drink: '💧', meal: '🍽️', med: '💊', wound: '🩹' }
+  const icons  = { drink: '💧', meal: '🍽️', med: '💊', wound: '🩹' }
   const labels = { drink: 'Minum', meal: 'Makan', med: 'Obat', wound: 'Luka' }
 
   return (
@@ -503,19 +488,12 @@ function TodayTimeline({ logs, onDeleteRequest }) {
             <div className="flex-1">
               <p className="font-semibold text-gray-800">{labels[log.type]}</p>
               <p className="text-gray-500 text-sm">{log.summary}</p>
-              {log.notes ? (
-                <p className="text-gray-400 text-sm italic mt-1">📝 {log.notes}</p>
-              ) : null}
-              {log.logged_by ? (
-                <p className="text-gray-400 text-xs mt-0.5">— {log.logged_by}</p>
-              ) : null}
+              {log.notes   && <p className="text-gray-400 text-sm italic mt-1">📝 {log.notes}</p>}
+              {log.logged_by && <p className="text-gray-400 text-xs mt-0.5">— {log.logged_by}</p>}
             </div>
             <div className="flex flex-col items-end gap-2">
               <p className="text-gray-400 text-sm">{log.time}</p>
-              <button
-                onClick={() => onDeleteRequest(log)}
-                className="text-red-300 hover:text-red-500 text-xl leading-none"
-              >
+              <button onClick={() => onDeleteRequest(log)} className="text-red-300 active:text-red-500 text-xl leading-none">
                 🗑️
               </button>
             </div>
@@ -528,58 +506,36 @@ function TodayTimeline({ logs, onDeleteRequest }) {
 
 // ─── Rekap Screen ────────────────────────────────────────────
 function RekapScreen({ logs, onBack }) {
-  const icons = { drink: '💧', meal: '🍽️', med: '💊', wound: '🩹' }
+  const icons  = { drink: '💧', meal: '🍽️', med: '💊', wound: '🩹' }
   const labels = { drink: 'Minum', meal: 'Makan', med: 'Obat', wound: 'Luka' }
 
-  const grouped = logs.reduce((acc, log) => {
+  const grouped     = logs.reduce((acc, log) => {
     if (!acc[log.date]) acc[log.date] = []
     acc[log.date].push(log)
     return acc
   }, {})
-
   const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a))
 
   function formatDate(dateStr) {
-    const date = new Date(dateStr + 'T00:00:00')
-    const todayStr = today()
+    const date         = new Date(dateStr + 'T00:00:00')
+    const todayStr     = today()
     const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0]
-    if (dateStr === todayStr) return 'Hari Ini'
+    if (dateStr === todayStr)     return 'Hari Ini'
     if (dateStr === yesterdayStr) return 'Kemarin'
-    return date.toLocaleDateString('id-ID', {
-      weekday: 'long', day: 'numeric', month: 'long'
-    })
+    return date.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })
   }
 
   function DaySummaryBadges({ dayLogs }) {
-    const drinkTotal = dayLogs
-      .filter(l => l.type === 'drink')
-      .reduce((s, l) => s + l.amount, 0)
-    const mealCount = dayLogs.filter(l => l.type === 'meal').length
-    const medCount = dayLogs.filter(l => l.type === 'med').length
-    const woundLog = dayLogs.find(l => l.type === 'wound')
-
+    const drinkTotal = dayLogs.filter(l => l.type === 'drink').reduce((s, l) => s + l.amount, 0)
+    const mealCount  = dayLogs.filter(l => l.type === 'meal').length
+    const medCount   = dayLogs.filter(l => l.type === 'med').length
+    const woundLog   = dayLogs.find(l => l.type === 'wound')
     return (
       <div className="flex gap-2 flex-wrap mt-2">
-        {drinkTotal > 0 && (
-          <span className="bg-sky-100 text-sky-700 text-xs font-medium px-3 py-1 rounded-full">
-            💧 {drinkTotal} gelas
-          </span>
-        )}
-        {mealCount > 0 && (
-          <span className="bg-orange-100 text-orange-700 text-xs font-medium px-3 py-1 rounded-full">
-            🍽️ {mealCount}x makan
-          </span>
-        )}
-        {medCount > 0 && (
-          <span className="bg-purple-100 text-purple-700 text-xs font-medium px-3 py-1 rounded-full">
-            💊 {medCount}x obat
-          </span>
-        )}
-        {woundLog && (
-          <span className="bg-rose-100 text-rose-700 text-xs font-medium px-3 py-1 rounded-full">
-            🩹 Luka dicek
-          </span>
-        )}
+        {drinkTotal > 0 && <span className="bg-sky-100 text-sky-700 text-xs font-medium px-3 py-1 rounded-full">💧 {drinkTotal} gelas</span>}
+        {mealCount  > 0 && <span className="bg-orange-100 text-orange-700 text-xs font-medium px-3 py-1 rounded-full">🍽️ {mealCount}x makan</span>}
+        {medCount   > 0 && <span className="bg-purple-100 text-purple-700 text-xs font-medium px-3 py-1 rounded-full">💊 {medCount}x obat</span>}
+        {woundLog       && <span className="bg-rose-100 text-rose-700 text-xs font-medium px-3 py-1 rounded-full">🩹 Luka dicek</span>}
       </div>
     )
   }
@@ -587,22 +543,15 @@ function RekapScreen({ logs, onBack }) {
   function DayCard({ dateStr, dayLogs }) {
     const [expanded, setExpanded] = useState(dateStr === today())
     const sorted = [...dayLogs].sort((a, b) => b.timestamp - a.timestamp)
-
     return (
       <div className="bg-white rounded-2xl shadow-sm mb-4 overflow-hidden">
-        <button
-          onClick={() => setExpanded(e => !e)}
-          className="w-full px-5 py-4 flex items-center justify-between"
-        >
+        <button onClick={() => setExpanded(e => !e)} className="w-full px-5 py-4 flex items-center justify-between">
           <div className="text-left">
             <p className="font-bold text-gray-800 text-lg capitalize">{formatDate(dateStr)}</p>
             <DaySummaryBadges dayLogs={dayLogs} />
           </div>
-          <span className={`text-gray-400 text-xl transition-transform ${expanded ? 'rotate-180' : ''}`}>
-            ▾
-          </span>
+          <span className={`text-gray-400 text-xl transition-transform ${expanded ? 'rotate-180' : ''}`}>▾</span>
         </button>
-
         {expanded && (
           <div className="border-t border-gray-100 divide-y divide-gray-50">
             {sorted.map(log => (
@@ -611,14 +560,12 @@ function RekapScreen({ logs, onBack }) {
                 <div className="flex-1">
                   <p className="font-semibold text-gray-700">{labels[log.type]}</p>
                   <p className="text-gray-500 text-sm">{log.summary}</p>
-                  {log.notes ? (
-                    <p className="text-gray-400 text-sm italic mt-0.5">📝 {log.notes}</p>
-                  ) : null}
-                  {log.logged_by ? (
+                  {log.notes     && <p className="text-gray-400 text-sm italic mt-0.5">📝 {log.notes}</p>}
+                  {log.logged_by && (
                     <p className="text-gray-400 text-xs mt-0.5">
-                      — {log.logged_by} {log.device_info ? `· ${log.device_info}` : ''}
+                      — {log.logged_by}{log.device_info ? ` · ${log.device_info}` : ''}
                     </p>
-                  ) : null}
+                  )}
                 </div>
                 <p className="text-gray-400 text-sm shrink-0">{log.time}</p>
               </div>
@@ -630,18 +577,12 @@ function RekapScreen({ logs, onBack }) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white px-5 pt-12 pb-4 shadow-sm flex items-center gap-3 sticky top-0 z-40">
-        <button
-          onClick={onBack}
-          className="text-sky-500 text-lg font-semibold"
-        >
-          ← Kembali
-        </button>
+    <div className="h-screen flex flex-col bg-gray-50">
+      <div className="bg-white px-5 pt-12 pb-4 shadow-sm flex items-center gap-3 flex-shrink-0">
+        <button onClick={onBack} className="text-sky-500 text-lg font-semibold">← Kembali</button>
         <h1 className="text-2xl font-black text-gray-800">📋 Rekap</h1>
       </div>
-
-      <div className="px-4 pt-5 pb-32">
+      <div className="flex-1 overflow-y-auto px-4 pt-5 pb-32">
         {sortedDates.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
             <p className="text-5xl mb-3">📭</p>
@@ -658,52 +599,44 @@ function RekapScreen({ logs, onBack }) {
   )
 }
 
+// ─── Pull-to-refresh constants ───────────────────────────────
+const PTR_TRIGGER_PX = 80   // raw drag distance to fire refresh
+const PTR_MAX_H      = 60   // max indicator height in px
+
 // ─── Main App ────────────────────────────────────────────────
 export default function App() {
-  const scrollRef = useRef(null)
-  const [logs, setLogs] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [modal, setModal] = useState(null)
+  const wrapperRef = useRef(null)  // non-scrollable pull wrapper — gets translateY
+  const scrollRef  = useRef(null)  // actual scroll div — NEVER translated
+
+  const [logs, setLogs]               = useState([])
+  const [loading, setLoading]         = useState(true)
+  const [modal, setModal]             = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
-  const [screen, setScreen] = useState('home')
+  const [screen, setScreen]           = useState('home')
   const [currentUser, setCurrentUser] = useState(getCurrentUser)
-  const [refreshing, setRefreshing] = useState(false)
+  const [refreshing, setRefreshing]   = useState(false)
+  const [pullRaw, setPullRaw]         = useState(0)
 
-  // ── Pull-to-refresh state ─────────────────────────────────
-  // pullRaw: unbounded raw pixels of finger travel.
-  // We derive rubberY (translateY for content) and indicatorH separately,
-  // both using a 0.4 damping factor — feels like iOS native rubber-band.
-  const [pullRaw, setPullRaw] = useState(0)
+  // Refs for use inside addEventListener closures (avoid stale closures)
+  const touchStartYRef   = useRef(0)
+  const isPullingRef     = useRef(false)
+  const pullRawRef       = useRef(0)
+  const handleRefreshRef = useRef(null)
 
-  const touchStartYRef = useRef(0)
-  const isPullingRef = useRef(false)
-  const pullRawRef = useRef(0)          // mirror for use inside addEventListener closures
-  const handleRefreshRef = useRef(null) // always-fresh fn ref, avoids stale closure
-
-  // ── Supabase: initial load + realtime ─────────────────────
+  // ── Supabase: load + realtime ────────────────────────────
   useEffect(() => {
-    loadLogs().then(data => {
-      setLogs(data)
-      setLoading(false)
-    })
+    loadLogs().then(data => { setLogs(data); setLoading(false) })
 
     const channel = supabase
       .channel('logs-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'logs' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            setLogs(prev => {
-              if (prev.find(l => l.id === payload.new.id)) return prev
-              return [payload.new, ...prev]
-            })
-          }
-          if (payload.eventType === 'DELETE') {
-            setLogs(prev => prev.filter(l => l.id !== payload.old.id))
-          }
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'logs' }, payload => {
+        if (payload.eventType === 'INSERT') {
+          setLogs(prev => prev.find(l => l.id === payload.new.id) ? prev : [payload.new, ...prev])
         }
-      )
+        if (payload.eventType === 'DELETE') {
+          setLogs(prev => prev.filter(l => l.id !== payload.old.id))
+        }
+      })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
@@ -715,22 +648,40 @@ export default function App() {
     setLogs(data)
     setRefreshing(false)
   }
-
-  // Keep ref always pointing to the latest handleRefresh
   handleRefreshRef.current = handleRefresh
 
-  // ── Non-passive touch handler ─────────────────────────────
-  // JSX onTouchMove is always passive on mobile → e.preventDefault() ignored.
-  // We register manually with { passive: false } so we own the gesture fully.
+  // ── Pull-to-refresh touch handler ───────────────────────
+  //
+  // WHY this works and previous attempts didn't:
+  //
+  // 1. Listeners are on wrapperRef (non-scrollable div), NOT scrollRef.
+  //    The wrapper is what gets translated — scrollRef's own scroll
+  //    mechanism is completely separate and never fights us.
+  //
+  // 2. touchmove uses { capture: true } — capture phase fires on the
+  //    WRAPPER before the event reaches the scroll child. When we call
+  //    e.preventDefault() here, the scroll div never sees the event,
+  //    so the browser's internal scroll machinery never kicks in.
+  //    This is the key fix — without capture:true, passive:false alone
+  //    is not enough on iOS Safari when a scroll container is a descendant.
+  //
+  // 3. translateY is on the wrapper (no overflow), not on a scroll
+  //    container. Scroll containers get GPU-composited as their own
+  //    layer — applying transform to them can be ignored by the
+  //    compositor on iOS. Moving the transform up to a normal div
+  //    removes that problem entirely.
+  //
   useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
+    const wrapper  = wrapperRef.current
+    const scroller = scrollRef.current
+    if (!wrapper || !scroller) return
 
     function onTouchStart(e) {
-      if (el.scrollTop === 0) {
+      // Only activate if scroll content is at the very top
+      if (scroller.scrollTop === 0) {
         touchStartYRef.current = e.touches[0].clientY
-        isPullingRef.current = true
-        pullRawRef.current = 0
+        isPullingRef.current   = true
+        pullRawRef.current     = 0
       } else {
         isPullingRef.current = false
       }
@@ -740,59 +691,55 @@ export default function App() {
       if (!isPullingRef.current) return
       const diff = e.touches[0].clientY - touchStartYRef.current
       if (diff > 0) {
-        e.preventDefault() // works because passive: false ↓
+        e.preventDefault()          // works: capture phase + passive:false
         pullRawRef.current = diff
         setPullRaw(diff)
       } else {
-        // Scrolled up — hand gesture back to normal scroll
+        // Finger moved up — hand scroll back to normal
         isPullingRef.current = false
-        pullRawRef.current = 0
+        pullRawRef.current   = 0
         setPullRaw(0)
       }
     }
 
     function onTouchEnd() {
-      if (isPullingRef.current && pullRawRef.current > 80) {
+      if (isPullingRef.current && pullRawRef.current >= PTR_TRIGGER_PX) {
         handleRefreshRef.current()
       }
       isPullingRef.current = false
-      pullRawRef.current = 0
+      pullRawRef.current   = 0
       setPullRaw(0)
     }
 
-    el.addEventListener('touchstart', onTouchStart, { passive: true })
-    el.addEventListener('touchmove', onTouchMove, { passive: false }) // ← key line
-    el.addEventListener('touchend', onTouchEnd, { passive: true })
+    wrapper.addEventListener('touchstart', onTouchStart, { passive: true })
+    wrapper.addEventListener('touchmove',  onTouchMove,  { passive: false, capture: true })
+    wrapper.addEventListener('touchend',   onTouchEnd,   { passive: true  })
 
     return () => {
-      el.removeEventListener('touchstart', onTouchStart)
-      el.removeEventListener('touchmove', onTouchMove)
-      el.removeEventListener('touchend', onTouchEnd)
+      wrapper.removeEventListener('touchstart', onTouchStart)
+      wrapper.removeEventListener('touchmove',  onTouchMove,  { capture: true })
+      wrapper.removeEventListener('touchend',   onTouchEnd)
     }
   }, [])
 
-  // ── Derived pull values ───────────────────────────────────
-  const TRIGGER_PX = 80       // raw px drag needed to fire refresh
-  const MAX_H = 56             // max indicator height in px
+  // ── Pull-to-refresh derived values ──────────────────────
+  // Rubber-band curve: sqrt gives natural deceleration.
+  // At 80px raw (trigger) → ~40px visual. At 300px raw → ~87px (capped at 60).
+  const dampened    = Math.min(Math.sqrt(pullRaw) * 4.5, PTR_MAX_H)
+  const translateY  = refreshing ? PTR_MAX_H : dampened
+  const indicatorH  = refreshing ? PTR_MAX_H : dampened
+  const pullProgress = Math.min(pullRaw / PTR_TRIGGER_PX, 1) // 0→1 for icon preview
+  const isSnapping  = refreshing || pullRaw === 0             // apply CSS ease on release
 
-  // Rubber-band: content + indicator move at 40% of raw drag.
-  // The further you pull, the more resistance — same feel as Instagram.
-  const dampened = Math.min(pullRaw * 0.4, MAX_H)
-  const rubberY = refreshing ? MAX_H : dampened
-  const indicatorH = refreshing ? MAX_H : dampened
-  const pullProgress = Math.min(pullRaw / TRIGGER_PX, 1) // 0→1 for icon spin preview
-
-  // Ease transitions only on release/refresh, not during active drag
-  const eased = refreshing || pullRaw === 0
-
+  // ── Log helpers ──────────────────────────────────────────
   async function addLog(entry) {
-    const user = USERS.find(u => u.id === currentUser)
+    const user   = USERS.find(u => u.id === currentUser)
     const newLog = {
-      id: Date.now(),
-      date: today(),
-      time: nowTime(),
-      timestamp: Date.now(),
-      logged_by: user ? `${user.emoji} ${user.name}` : 'Unknown',
+      id:          Date.now(),
+      date:        today(),
+      time:        nowTime(),
+      timestamp:   Date.now(),
+      logged_by:   user ? `${user.emoji} ${user.name}` : 'Unknown',
       device_info: getDeviceInfo(),
       ...entry,
     }
@@ -813,12 +760,9 @@ export default function App() {
   }
 
   function handleMealSave({ mealType, foodText, portion, notes }) {
-    const mealLabels = { breakfast: 'Sarapan', lunch: 'Makan Siang', dinner: 'Makan Malam', snack: 'Camilan' }
+    const mealLabels    = { breakfast: 'Sarapan', lunch: 'Makan Siang', dinner: 'Makan Malam', snack: 'Camilan' }
     const portionLabels = { small: 'Sedikit', medium: 'Normal', large: 'Banyak' }
-    addLog({
-      type: 'meal', notes,
-      summary: `${mealLabels[mealType]} · ${foodText} (${portionLabels[portion]})`,
-    })
+    addLog({ type: 'meal', notes, summary: `${mealLabels[mealType]} · ${foodText} (${portionLabels[portion]})` })
     setModal(null)
   }
 
@@ -829,12 +773,9 @@ export default function App() {
   }
 
   function handleWoundSave({ condition, appearance, appearanceOther, dressingChanged, notes }) {
-    const conditionLabels = { better: 'Lebih Baik 😊', same: 'Sama Saja 😐', worse: 'Memburuk 😟' }
-    const appearanceLabels = {
-      dry: 'Kering', wet: 'Basah', swollen: 'Bengkak',
-      redness: 'Kemerahan', discharge: 'Ada Cairan', smell: 'Berbau'
-    }
-    const appearanceText = appearance.length > 0
+    const conditionLabels  = { better: 'Lebih Baik 😊', same: 'Sama Saja 😐', worse: 'Memburuk 😟' }
+    const appearanceLabels = { dry: 'Kering', wet: 'Basah', swollen: 'Bengkak', redness: 'Kemerahan', discharge: 'Ada Cairan', smell: 'Berbau' }
+    const appearanceText   = appearance.length > 0
       ? `${appearance.map(a => appearanceLabels[a]).join(', ')} · ${appearanceOther}`
       : appearanceOther
     addLog({
@@ -844,13 +785,9 @@ export default function App() {
     setModal(null)
   }
 
-  const dateStr = new Date().toLocaleDateString('id-ID', {
-    weekday: 'long', day: 'numeric', month: 'long'
-  })
+  const dateStr = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' })
 
-  if (!currentUser) {
-    return <UserPickerScreen onPicked={setCurrentUser} />
-  }
+  if (!currentUser) return <UserPickerScreen onPicked={setCurrentUser} />
 
   if (loading) {
     return (
@@ -870,7 +807,7 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
 
-      {/* ── Fixed header — never moves ─────────────────────── */}
+      {/* ═══ Header — never translates, always fixed at top ════ */}
       <div className="bg-white px-5 pt-12 pb-4 shadow-sm flex-shrink-0 z-40">
         <p className="text-gray-400 text-sm capitalize">{dateStr}</p>
         <div className="flex items-center justify-between">
@@ -892,10 +829,7 @@ export default function App() {
               disabled={refreshing}
               className="bg-gray-100 text-gray-600 px-3 py-2 rounded-full active:bg-gray-200"
             >
-              <RefreshCw
-                size={18}
-                className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-500'}
-              />
+              <RefreshCw size={18} className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-500'} />
             </button>
             <button
               onClick={() => setScreen('rekap')}
@@ -907,76 +841,81 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── Pull indicator — between header and content ────────
-          Height grows from 0 → MAX_H as user pulls.
-          Eases back on release. Header stays 100% fixed. */}
+      {/* ═══ Pull wrapper — this div gets translateY ════════════
+          Structure:
+            • wrapperRef: flex-1, overflow-hidden, translateY applied here
+              ├─ Indicator: absolute, top = -PTR_MAX_H (hidden above when translateY=0)
+              │             slides INTO VIEW as translateY increases
+              └─ Scroll div: absolute inset-0, overflow-y-scroll
+                             handles its own scroll, NEVER translated
+
+          Why overflow-hidden on wrapper:
+            Clips the indicator when it's above (translateY=0).
+            Also prevents content from visually spilling below the screen
+            when the wrapper is pushed down.                               */}
       <div
-        className="flex-shrink-0 overflow-hidden bg-gray-50"
+        ref={wrapperRef}
+        className="flex-1 relative overflow-hidden"
         style={{
-          height: indicatorH,
-          transition: eased ? 'height 0.25s ease' : 'none',
+          transform:  `translateY(${translateY}px)`,
+          transition: isSnapping ? 'transform 0.28s cubic-bezier(0.25,0.46,0.45,0.94)' : 'none',
         }}
       >
-        <div className="flex justify-center items-center" style={{ height: MAX_H }}>
+        {/* Indicator: lives above the wrapper, slides in on pull */}
+        <div
+          className="absolute w-full flex justify-center items-center pointer-events-none z-10"
+          style={{ top: -PTR_MAX_H, height: PTR_MAX_H }}
+        >
           <div className="flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-md">
             <RefreshCw
               size={16}
               className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-400'}
               style={refreshing ? undefined : {
-                transform: `rotate(${pullProgress * 180}deg)`,
-                transition: 'transform 0.08s',
+                transform:  `rotate(${pullProgress * 200}deg)`,
+                transition: 'transform 0.05s',
               }}
             />
             <span className="text-sm text-gray-500">
-              {refreshing
-                ? 'Memperbarui...'
-                : pullProgress >= 1
-                  ? '🙌 Lepaskan!'
-                  : 'Tarik untuk refresh'}
+              {refreshing ? 'Memperbarui...' : pullProgress >= 1 ? '🙌 Lepaskan!' : 'Tarik untuk refresh'}
             </span>
           </div>
         </div>
-      </div>
 
-      {/* ── Scrollable content — rubber-bands during pull ──────
-          translateY at 40% of raw drag = increasing resistance feel.
-          transition: 'none' during drag for instant feedback,
-          'ease' on release so it snaps back smoothly. */}
-      <div
-        className="flex-1 overflow-y-scroll px-4 pt-5 pb-32"
-        ref={scrollRef}
-        style={{
-          overscrollBehavior: 'none',
-          transform: `translateY(${rubberY}px)`,
-          transition: eased ? 'transform 0.25s ease' : 'none',
-        }}
-      >
-        <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          {[
-            { id: 'meal', emoji: '🍽️', label: 'Makan', color: 'bg-orange-50 border-orange-300 text-orange-700' },
-            { id: 'med', emoji: '💊', label: 'Obat', color: 'bg-purple-50 border-purple-300 text-purple-700' },
-            { id: 'wound', emoji: '🩹', label: 'Luka', color: 'bg-rose-50 border-rose-300 text-rose-600' },
-          ].map(btn => (
-            <button
-              key={btn.id}
-              onClick={() => setModal(btn.id)}
-              className={`${btn.color} border-2 rounded-2xl py-5 flex flex-col items-center gap-1 active:scale-95 transition-transform`}
-            >
-              <span className="text-3xl">{btn.emoji}</span>
-              <span className="text-sm font-semibold">{btn.label}</span>
-            </button>
-          ))}
+        {/* Scroll container — absolute inset-0 fills the wrapper */}
+        <div
+          ref={scrollRef}
+          className="absolute inset-0 overflow-y-scroll px-4 pt-5 pb-32"
+          style={{ overscrollBehavior: 'none' }}
+        >
+          <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
+
+          <div className="grid grid-cols-3 gap-3 mb-6">
+            {[
+              { id: 'meal',  emoji: '🍽️', label: 'Makan', color: 'bg-orange-50 border-orange-300 text-orange-700' },
+              { id: 'med',   emoji: '💊', label: 'Obat',  color: 'bg-purple-50 border-purple-300 text-purple-700' },
+              { id: 'wound', emoji: '🩹', label: 'Luka',  color: 'bg-rose-50 border-rose-300 text-rose-600'       },
+            ].map(btn => (
+              <button
+                key={btn.id}
+                onClick={() => setModal(btn.id)}
+                className={`${btn.color} border-2 rounded-2xl py-5 flex flex-col items-center gap-1 active:scale-95 transition-transform`}
+              >
+                <span className="text-3xl">{btn.emoji}</span>
+                <span className="text-sm font-semibold">{btn.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <h2 className="text-lg font-bold text-gray-700 mb-3">Catatan Hari Ini</h2>
+          <TodayTimeline logs={logs} onDeleteRequest={setDeleteTarget} />
         </div>
-
-        <h2 className="text-lg font-bold text-gray-700 mb-3">Catatan Hari Ini</h2>
-        <TodayTimeline logs={logs} onDeleteRequest={setDeleteTarget} />
       </div>
 
-      {modal === 'drink' && <DrinkModal onClose={() => setModal(null)} onSave={handleDrinkSave} />}
-      {modal === 'meal' && <MealModal onClose={() => setModal(null)} onSave={handleMealSave} />}
-      {modal === 'med' && <MedModal onClose={() => setModal(null)} onSave={handleMedSave} />}
-      {modal === 'wound' && <WoundModal onClose={() => setModal(null)} onSave={handleWoundSave} />}
+      {/* ═══ Modals ══════════════════════════════════════════════ */}
+      {modal === 'drink' && <DrinkModal  onClose={() => setModal(null)} onSave={handleDrinkSave} />}
+      {modal === 'meal'  && <MealModal   onClose={() => setModal(null)} onSave={handleMealSave}  />}
+      {modal === 'med'   && <MedModal    onClose={() => setModal(null)} onSave={handleMedSave}   />}
+      {modal === 'wound' && <WoundModal  onClose={() => setModal(null)} onSave={handleWoundSave} />}
 
       {deleteTarget && (
         <DeleteConfirmModal
