@@ -35,6 +35,14 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 
 ## 🗺️ The Quest Log (Changelog)
 
+### 🏆 v0.2.0 — *"The Two Loggers"*
+`2026-03-17`
+- ✅ Meal Logger — catat makan, menu, porsi
+- ✅ Medication Logger — preset obat diabetes + custom input
+- ✅ Notes/remarks field di setiap entry
+- ✅ Delete log dengan konfirmasi (anti misclick)
+- ✅ Shared modal architecture (reusable components)
+
 ### 🏆 v0.1.0 — *"There and Back Again"*
 `2026-03-17`
 - ✅ Project scaffolded (Vite 6 + React + Tailwind)
@@ -49,16 +57,15 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 
 ## 🔭 The Road Goes Ever On (Roadmap)
 
-### 🧭 v0.2.0 — *"The Two Loggers"* *(next)*
-- [ ] 🍽️ Meal Logger — catat makan + porsi
-- [ ] 💊 Medication Logger — tap obat, auto timestamp
+### 🧭 v0.2.1 — *"The Wound That Was"* *(next)*
+- [ ] 🩹 Wound Monitor — kondisi luka nyok harian
 
-### 🏰 v0.3.0 — *"The Return of the Wound"*
-- [ ] 🩹 Wound Monitor — kondisi luka nyok
-- [ ] 📋 Daily Summary view
+### 🏰 v0.3.0 — *"The Two Timelines"*
+- [ ] 📋 History/Rekap screen — lihat catatan hari sebelumnya
+- [ ] 📅 Date navigation — tap tanggal, lihat log-nya
 
 ### 👑 v0.4.0 — *"The King Returns"*
-- [ ] ☁️ Supabase sync — data di cloud, bisa diakses Berry dari Singapore
+- [ ] ☁️ Supabase sync — data di cloud, Berry bisa monitor dari Singapore
 - [ ] 🔔 Push notification reminders
 - [ ] 📄 Export PDF untuk dokter
 
