@@ -2,7 +2,7 @@
 
 > *"Even the smallest person can change the course of the future."*
 > — Lady Galadriel
-> **Current status:** `v1.2.0` stands as the golden baseline of `main`; every future quest branches from this stable shrine.
+> **Current status:** `v1.3.0` stands as the golden baseline of `main`; every future quest branches from this stable shrine.
 
 ---
 
@@ -36,15 +36,38 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 
 ## 🗺️ The Quest Log (Changelog)
 
+### 🏔️ v1.3.0 — *"The Return of the King"*
+`2026-03-18`
+- ✅ Optimistic saves — entry appears instantly in UI, rolls back if Supabase fails
+- ✅ Optimistic deletes — entry disappears instantly, restores if delete fails
+- ✅ `saving` state — Save button shows "Menyimpan..." and disables during in-flight request
+- ✅ `deleting` state — Delete button shows "Menghapus..." and disables during in-flight request
+- ✅ `try/finally` on all async flows — loading and refreshing spinners can never get permanently stuck
+- ✅ Realtime subscription now handles INSERT + UPDATE + DELETE (was missing UPDATE)
+- ✅ `upsertLogInState` shared helper — realtime and optimistic updates use one consistent merge function
+- ✅ Improved ID generation — crypto-backed randomness, bigint-safe to prevent cross-device collisions
+- ✅ Fixed Tailwind dynamic grid — replaced `grid-cols-${cols}` with a static class map (was silently broken in production builds)
+- ✅ Modal backdrop tap disabled by default — reduces accidental dismissal for older / less tech-savvy users
+- ✅ Wound form "other appearance" field now clearly optional in both UI label and save logic
+- ✅ `isMounted` guard on initial load — prevents state updates on unmounted component
+- ✅ `touchcancel` handler added alongside `touchend` — covers interrupted gestures (incoming call, etc.)
+- ✅ `refreshingRef` guard — prevents double-triggering refresh if gesture fires while already refreshing
+- ✅ `MIN_REFRESH_MS = 420ms` — minimum visible spinner duration, prevents jarring instant-flash on fast connections
+- ✅ `overpullY` extra rubber-band past trigger threshold — more elastic feel when pulling beyond 80px
+- ✅ `100dvh` viewport height — fixes layout on mobile browsers with dynamic toolbars
+- ✅ `safe-area-inset` padding on header and modals — correct spacing on notch / Dynamic Island devices
+- ✅ Pull indicator uses opacity + translateY (not height-based) — smoother entrance animation
+- ✅ Full inline code documentation — every component and design decision explained
+- ⚠️ Pull-to-refresh rubber-band spinner below header — gesture detected and data refreshes correctly, visual indicator still not appearing on mobile
+
 ### 🏔️ v1.2.0 — *"The Two Towers"*
 `2026-03-17`
 - ✅ Modal sheet redesign — flex-col structure, header always fully visible
 - ✅ Explicit ✕ close button on all modals (Drink, Meal, Medication, Wound)
 - ✅ Drag pill affordance on bottom sheet — visual cue that it can be dismissed
-- ✅ Pull-to-refresh architecture rewrite — wrapper and scroller now act independently
+- ✅ Pull-to-refresh architecture rewrite — wrapper and scroller fully separated
 - ✅ Touch listener with `capture:true` — intercepts gesture before scroll child receives it
 - ✅ `translateY` moved to non-scrollable wrapper (resolves iOS GPU compositing layer conflict)
-- ✅ Pull-to-refresh rubber-band effect completes successfully — drag the content under the header, watch the refresh pill, and release for the same desktop animation
 
 ### 🏆 v1.1.0 — *"The Shire Calls"*
 `2026-03-17`
@@ -98,15 +121,15 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 
 ## 🔭 The Road Goes Ever On (Roadmap)
 
-### 🧭 v1.2.1 — *"The Paths of the Dead"* *(next)*
-- [ ] 🫳 Habit reminders — quick sip/drink nudges for low-output days
+### 🧭 v1.3.1 — *"The Paths of the Dead"* *(next)*
+- [ ] 🫳 Pull-to-refresh rubber-band spinner — loading indicator visually appears below header on mobile
 
-### 🏰 v1.3.0 — *"The Palantír"*
+### 🏰 v1.4.0 — *"The Palantír"*
 - [ ] 🔔 Push notification reminders — medication time, drink reminders
 - [ ] 📊 Berry's Dashboard — weekly drink and meal trend charts
 - [ ] 🚨 Alert when daily water intake falls below target
 
-### 👑 v1.4.0 — *"The Scouring of the Shire"*
+### 👑 v1.5.0 — *"The Scouring of the Shire"*
 - [ ] 📄 PDF export for doctor appointments
 - [ ] 📸 Wound photo upload — visual progress over time
 
