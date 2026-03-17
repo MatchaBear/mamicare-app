@@ -95,6 +95,12 @@ function upsertLogInState(prevLogs, incomingLog) {
   return next.sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
 }
 
+const SAFE_TOP_PAD = 'calc(env(safe-area-inset-top, 0px) + 12px)'
+const SAFE_BOTTOM_PAD = 'calc(env(safe-area-inset-bottom, 0px) + 24px)'
+const APP_VIEWPORT_HEIGHT = '100dvh'
+const TRIGGER_PX = 80
+const MAX_PULL_Y = 56
+
 /* ============================================================
  * User Identity
  * ============================================================
@@ -299,8 +305,16 @@ function ModalShell({
       className="fixed inset-0 bg-black/60 flex items-end z-50"
       onClick={handleBackdropClick}
     >
-      <div className="bg-white w-full rounded-t-3xl max-h-[92vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 pt-6 pb-2 sticky top-0 bg-white z-10 border-b border-gray-100">
+      <div
+        className="bg-white w-full rounded-t-3xl overflow-hidden flex flex-col shadow-2xl"
+        style={{
+          maxHeight: 'calc(100dvh - env(safe-area-inset-top, 0px) - 8px)',
+        }}
+      >
+        <div
+          className="flex items-center justify-between px-6 pb-2 bg-white z-10 border-b border-gray-100 flex-shrink-0"
+          style={{ paddingTop: SAFE_TOP_PAD }}
+        >
           <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
 
           <button
@@ -312,7 +326,12 @@ function ModalShell({
           </button>
         </div>
 
-        <div className="px-6 pb-10 pt-4">{children}</div>
+        <div
+          className="px-6 pt-4 overflow-y-auto"
+          style={{ paddingBottom: `calc(${SAFE_BOTTOM_PAD} + 16px)` }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   )
@@ -1045,8 +1064,14 @@ function RekapScreen({ logs, onBack }) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white px-5 pt-12 pb-4 shadow-sm flex items-center gap-3 sticky top-0 z-40">
+    <div
+      className="h-screen flex flex-col bg-gray-50 overflow-hidden"
+      style={{ height: APP_VIEWPORT_HEIGHT }}
+    >
+      <div
+        className="bg-white px-5 pb-4 shadow-sm flex items-center gap-3 flex-shrink-0 z-40"
+        style={{ paddingTop: SAFE_TOP_PAD }}
+      >
         <button onClick={onBack} className="text-sky-500 text-lg font-semibold">
           ← Kembali
         </button>
@@ -1054,7 +1079,10 @@ function RekapScreen({ logs, onBack }) {
         <h1 className="text-2xl font-black text-gray-800">📋 Rekap</h1>
       </div>
 
-      <div className="px-4 pt-5 pb-32">
+      <div
+        className="flex-1 min-h-0 overflow-y-auto px-4 pt-5"
+        style={{ paddingBottom: `calc(${SAFE_BOTTOM_PAD} + 64px)` }}
+      >
         {sortedDates.length === 0 ? (
           <div className="text-center py-16 text-gray-400">
             <p className="text-5xl mb-3">📭</p>
@@ -1119,6 +1147,9 @@ export default function App() {
   const isPullingRef = useRef(false)
   const pullRawRef = useRef(0)
   const handleRefreshRef = useRef(null)
+  const refreshingRef = useRef(false)
+
+  refreshingRef.current = refreshing
 
   /* ---------------- Initial load + realtime ---------------- */
   useEffect(() => {
@@ -1163,6 +1194,8 @@ export default function App() {
   }, [])
 
   async function handleRefresh() {
+    if (refreshingRef.current) return
+
     setRefreshing(true)
 
     try {
@@ -1180,18 +1213,30 @@ export default function App() {
     const el = scrollRef.current
     if (!el) return
 
+    function resetPull() {
+      isPullingRef.current = false
+      pullRawRef.current = 0
+      setPullRaw(0)
+    }
+
     function onTouchStart(e) {
-      if (el.scrollTop === 0) {
+      if (refreshingRef.current || e.touches.length !== 1) {
+        resetPull()
+        return
+      }
+
+      if (el.scrollTop <= 0.5) {
         touchStartYRef.current = e.touches[0].clientY
         isPullingRef.current = true
         pullRawRef.current = 0
+        setPullRaw(0)
       } else {
-        isPullingRef.current = false
+        resetPull()
       }
     }
 
     function onTouchMove(e) {
-      if (!isPullingRef.current) return
+      if (!isPullingRef.current || refreshingRef.current) return
 
       const diff = e.touches[0].clientY - touchStartYRef.current
 
@@ -1200,41 +1245,37 @@ export default function App() {
         pullRawRef.current = diff
         setPullRaw(diff)
       } else {
-        isPullingRef.current = false
-        pullRawRef.current = 0
-        setPullRaw(0)
+        resetPull()
       }
     }
 
     function onTouchEnd() {
-      if (isPullingRef.current && pullRawRef.current > 80) {
+      if (isPullingRef.current && pullRawRef.current > TRIGGER_PX) {
         handleRefreshRef.current?.()
       }
 
-      isPullingRef.current = false
-      pullRawRef.current = 0
-      setPullRaw(0)
+      resetPull()
     }
 
     el.addEventListener('touchstart', onTouchStart, { passive: true })
     el.addEventListener('touchmove', onTouchMove, { passive: false })
     el.addEventListener('touchend', onTouchEnd, { passive: true })
+    el.addEventListener('touchcancel', onTouchEnd, { passive: true })
 
     return () => {
       el.removeEventListener('touchstart', onTouchStart)
       el.removeEventListener('touchmove', onTouchMove)
       el.removeEventListener('touchend', onTouchEnd)
+      el.removeEventListener('touchcancel', onTouchEnd)
     }
   }, [])
 
   /* ---------------- Derived pull values ---------------- */
-  const TRIGGER_PX = 80
-  const MAX_H = 56
-
-  const dampened = Math.min(pullRaw * 0.4, MAX_H)
-  const rubberY = refreshing ? MAX_H : dampened
-  const indicatorH = refreshing ? MAX_H : dampened
+  const dampened = Math.min(pullRaw * 0.42, MAX_PULL_Y)
+  const rubberY = refreshing ? MAX_PULL_Y : dampened
   const pullProgress = Math.min(pullRaw / TRIGGER_PX, 1)
+  const indicatorOffset = refreshing ? 0 : dampened - MAX_PULL_Y
+  const showPullIndicator = refreshing || pullRaw > 0
   const eased = refreshing || pullRaw === 0
 
   /* ---------------- Actions ---------------- */
@@ -1411,9 +1452,15 @@ export default function App() {
 
   /* ---------------- Home screen ---------------- */
   return (
-    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
+    <div
+      className="h-screen flex flex-col bg-gray-50 overflow-hidden"
+      style={{ height: APP_VIEWPORT_HEIGHT }}
+    >
       {/* Fixed header: never moves during pull gesture */}
-      <div className="bg-white px-5 pt-12 pb-4 shadow-sm flex-shrink-0 z-40">
+      <div
+        className="bg-white px-5 pb-4 shadow-sm flex-shrink-0 z-40"
+        style={{ paddingTop: SAFE_TOP_PAD }}
+      >
         <p className="text-gray-400 text-sm capitalize">{dateStr}</p>
 
         <div className="flex items-center justify-between gap-3">
@@ -1460,16 +1507,21 @@ export default function App() {
         </div>
       </div>
 
-      {/* Pull indicator lives between header and content */}
-      <div
-        className="flex-shrink-0 overflow-hidden bg-gray-50"
-        style={{
-          height: indicatorH,
-          transition: eased ? 'height 0.25s ease' : 'none',
-        }}
-      >
-        <div className="flex justify-center items-center" style={{ height: MAX_H }}>
-          <div className="flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-md">
+      <div className="flex-1 min-h-0 relative overflow-hidden bg-gray-50">
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center overflow-hidden"
+          style={{ height: MAX_PULL_Y }}
+        >
+          <div
+            className="mt-2 flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-md"
+            style={{
+              opacity: showPullIndicator ? 1 : 0,
+              transform: `translateY(${indicatorOffset}px)`,
+              transition: eased
+                ? 'transform 0.25s ease, opacity 0.25s ease'
+                : 'none',
+            }}
+          >
             <RefreshCw
               size={16}
               className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-400'}
@@ -1477,9 +1529,9 @@ export default function App() {
                 refreshing
                   ? undefined
                   : {
-                    transform: `rotate(${pullProgress * 180}deg)`,
-                    transition: 'transform 0.08s',
-                  }
+                      transform: `rotate(${pullProgress * 180}deg)`,
+                      transition: 'transform 0.08s',
+                    }
               }
             />
 
@@ -1492,54 +1544,62 @@ export default function App() {
             </span>
           </div>
         </div>
-      </div>
 
-      {/* Scrollable content with rubber-band translateY */}
-      <div
-        className="flex-1 overflow-y-scroll px-4 pt-5 pb-32"
-        ref={scrollRef}
-        style={{
-          overscrollBehavior: 'none',
-          transform: `translateY(${rubberY}px)`,
-          transition: eased ? 'transform 0.25s ease' : 'none',
-        }}
-      >
-        <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
+        {/* Scroll viewport stays fixed; inner content rubber-bands below the header */}
+        <div
+          className="flex-1 min-h-0 h-full overflow-y-auto px-4"
+          ref={scrollRef}
+          style={{
+            overscrollBehaviorY: 'contain',
+            WebkitOverflowScrolling: 'touch',
+            paddingBottom: `calc(${SAFE_BOTTOM_PAD} + 72px)`,
+          }}
+        >
+          <div
+            className="pt-5"
+            style={{
+              transform: `translateY(${rubberY}px)`,
+              transition: eased ? 'transform 0.25s ease' : 'none',
+            }}
+          >
+            <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
 
-        <div className="grid grid-cols-3 gap-3 mb-6">
-          {[
-            {
-              id: 'meal',
-              emoji: '🍽️',
-              label: 'Makan',
-              color: 'bg-orange-50 border-orange-300 text-orange-700',
-            },
-            {
-              id: 'med',
-              emoji: '💊',
-              label: 'Obat',
-              color: 'bg-purple-50 border-purple-300 text-purple-700',
-            },
-            {
-              id: 'wound',
-              emoji: '🩹',
-              label: 'Luka',
-              color: 'bg-rose-50 border-rose-300 text-rose-600',
-            },
-          ].map(btn => (
-            <button
-              key={btn.id}
-              onClick={() => setModal(btn.id)}
-              className={`${btn.color} border-2 rounded-2xl py-5 flex flex-col items-center gap-1 active:scale-95 transition-transform`}
-            >
-              <span className="text-3xl">{btn.emoji}</span>
-              <span className="text-sm font-semibold">{btn.label}</span>
-            </button>
-          ))}
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              {[
+                {
+                  id: 'meal',
+                  emoji: '🍽️',
+                  label: 'Makan',
+                  color: 'bg-orange-50 border-orange-300 text-orange-700',
+                },
+                {
+                  id: 'med',
+                  emoji: '💊',
+                  label: 'Obat',
+                  color: 'bg-purple-50 border-purple-300 text-purple-700',
+                },
+                {
+                  id: 'wound',
+                  emoji: '🩹',
+                  label: 'Luka',
+                  color: 'bg-rose-50 border-rose-300 text-rose-600',
+                },
+              ].map(btn => (
+                <button
+                  key={btn.id}
+                  onClick={() => setModal(btn.id)}
+                  className={`${btn.color} border-2 rounded-2xl py-5 flex flex-col items-center gap-1 active:scale-95 transition-transform`}
+                >
+                  <span className="text-3xl">{btn.emoji}</span>
+                  <span className="text-sm font-semibold">{btn.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <h2 className="text-lg font-bold text-gray-700 mb-3">Catatan Hari Ini</h2>
+            <TodayTimeline logs={logs} onDeleteRequest={setDeleteTarget} />
+          </div>
         </div>
-
-        <h2 className="text-lg font-bold text-gray-700 mb-3">Catatan Hari Ini</h2>
-        <TodayTimeline logs={logs} onDeleteRequest={setDeleteTarget} />
       </div>
 
       {/* Entry modals */}
