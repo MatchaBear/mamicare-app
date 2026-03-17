@@ -8,6 +8,54 @@ const nowTime = () => new Date().toLocaleTimeString('id-ID', {
   hour: '2-digit', minute: '2-digit'
 })
 
+// ─── User Identity ───────────────────────────────────────────
+const USERS = [
+  { id: 'nyok', name: 'Nyok', emoji: '👵' },
+  { id: 'susi', name: 'Sus Susi', emoji: '🧑‍🍳' },
+  { id: 'berry', name: 'Berry', emoji: '🧙' },
+  { id: 'meme', name: 'Mega', emoji: '👩' },
+]
+
+function getCurrentUser() {
+  return localStorage.getItem('mamicare_user') || null
+}
+
+function getDeviceInfo() {
+  const ua = navigator.userAgent
+  if (/iPhone/.test(ua)) return '📱 iPhone'
+  if (/iPad/.test(ua)) return '📱 iPad'
+  if (/Android/.test(ua)) return '📱 Android'
+  if (/Mac/.test(ua)) return '💻 Mac'
+  if (/Windows/.test(ua)) return '🖥️ Windows'
+  return '🌐 Browser'
+}
+
+function setCurrentUser(userId) {
+  localStorage.setItem('mamicare_user', userId)
+}
+
+function UserPickerScreen({ onPicked }) {
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center px-6">
+      <p className="text-6xl mb-4">🌸</p>
+      <h1 className="text-3xl font-black text-gray-800 mb-2">MamiCare</h1>
+      <p className="text-gray-500 text-lg mb-10 text-center">Siapa kamu hari ini?</p>
+      <div className="grid grid-cols-2 gap-4 w-full max-w-sm">
+        {USERS.map(user => (
+          <button
+            key={user.id}
+            onClick={() => { setCurrentUser(user.id); onPicked(user.id) }}
+            className="bg-white border-2 border-gray-200 rounded-3xl py-8 flex flex-col items-center gap-2 active:scale-95 transition-transform shadow-sm"
+          >
+            <span className="text-5xl">{user.emoji}</span>
+            <span className="text-lg font-bold text-gray-800">{user.name}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 async function loadLogs() {
   const { data, error } = await supabase
     .from('logs')
@@ -224,6 +272,7 @@ function MealModal({ onClose, onSave }) {
 // ─── Med Modal ───────────────────────────────────────────────
 function MedModal({ onClose, onSave }) {
   const [medName, setMedName] = useState('')
+  const [isOther, setIsOther] = useState(false)
   const [status, setStatus] = useState(null)
   const [notes, setNotes] = useState('')
 
@@ -251,8 +300,8 @@ function MedModal({ onClose, onSave }) {
         {presets.map(p => (
           <button
             key={p}
-            onClick={() => setMedName(p)}
-            className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${medName === p
+            onClick={() => { setMedName(p); setIsOther(false) }}
+            className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${medName === p && !isOther
               ? 'bg-purple-500 text-white border-purple-500'
               : 'bg-white text-gray-600 border-gray-200'
               }`}
@@ -260,15 +309,25 @@ function MedModal({ onClose, onSave }) {
             {p}
           </button>
         ))}
+        <button
+          onClick={() => { setMedName(''); setIsOther(true) }}
+          className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${isOther
+            ? 'bg-purple-500 text-white border-purple-500'
+            : 'bg-white text-gray-600 border-gray-200'
+            }`}
+        >
+          ✏️ Obat Lainnya
+        </button>
       </div>
-      {/* Or type custom */}
-      <input
-        type="text"
-        value={medName}
-        onChange={e => setMedName(e.target.value)}
-        placeholder="Atau ketik nama obat lain..."
-        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-purple-400 mb-6"
-      />
+      {isOther && (
+        <input
+          type="text"
+          value={medName}
+          onChange={e => setMedName(e.target.value)}
+          placeholder="Silakan isi nama obat di sini..."
+          className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-purple-400 mb-6"
+        />
+      )}
 
       <p className="text-gray-500 text-lg mb-3">Status?</p>
       <OptionGroup options={statuses} selected={status} onSelect={setStatus} cols={1} />
@@ -283,6 +342,7 @@ function MedModal({ onClose, onSave }) {
 function WoundModal({ onClose, onSave }) {
   const [condition, setCondition] = useState(null)
   const [appearance, setAppearance] = useState([])
+  const [appearanceOther, setAppearanceOther] = useState('')
   const [dressingChanged, setDressingChanged] = useState(null)
   const [notes, setNotes] = useState('')
 
@@ -307,7 +367,7 @@ function WoundModal({ onClose, onSave }) {
     )
   }
 
-  const canSave = condition && dressingChanged !== null
+  const canSave = condition && dressingChanged !== null && (appearance.length > 0 || appearanceOther.trim().length > 0)
 
   return (
     <ModalShell onClose={onClose}>
@@ -321,8 +381,8 @@ function WoundModal({ onClose, onSave }) {
         cols={3}
       />
 
-      <p className="text-gray-500 text-lg mb-3">Tampilan luka? <span className="text-sm">(boleh pilih lebih dari satu)</span></p>
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      <p className="text-gray-500 text-lg mb-3">Tampilan luka? <span className="text-sm">(pilih semua yang sesuai)</span></p>
+      <div className="grid grid-cols-2 gap-3 mb-4">
         {appearanceOptions.map(opt => (
           <button
             key={opt.id}
@@ -336,6 +396,13 @@ function WoundModal({ onClose, onSave }) {
           </button>
         ))}
       </div>
+      <input
+        type="text"
+        value={appearanceOther}
+        onChange={e => setAppearanceOther(e.target.value)}
+        placeholder="Deskripsi tampilan luka lainnya... (wajib diisi)"
+        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-rose-400 mb-6"
+      />
 
       <p className="text-gray-500 text-lg mb-3">Ganti perban hari ini?</p>
       <div className="grid grid-cols-2 gap-3 mb-6">
@@ -357,8 +424,7 @@ function WoundModal({ onClose, onSave }) {
       </div>
 
       <NotesField value={notes} onChange={setNotes} />
-      <SaveButton canSave={canSave} onSave={() => onSave({ condition, appearance, dressingChanged, notes })} />
-    </ModalShell>
+      <SaveButton canSave={canSave} onSave={() => onSave({ condition, appearance, appearanceOther, dressingChanged, notes })} />    </ModalShell>
   )
 }
 
@@ -430,6 +496,9 @@ function TodayTimeline({ logs, onDeleteRequest }) {
               <p className="text-gray-500 text-sm">{log.summary}</p>
               {log.notes ? (
                 <p className="text-gray-400 text-sm italic mt-1">📝 {log.notes}</p>
+              ) : null}
+              {log.logged_by ? (
+                <p className="text-gray-400 text-xs mt-0.5">— {log.logged_by}</p>
               ) : null}
             </div>
             <div className="flex flex-col items-end gap-2">
@@ -539,6 +608,11 @@ function RekapScreen({ logs, onBack }) {
                   {log.notes ? (
                     <p className="text-gray-400 text-sm italic mt-0.5">📝 {log.notes}</p>
                   ) : null}
+                  {log.logged_by ? (
+                    <p className="text-gray-400 text-xs mt-0.5">
+                      — {log.logged_by} {log.device_info ? `· ${log.device_info}` : ''}
+                    </p>
+                  ) : null}
                 </div>
                 <p className="text-gray-400 text-sm shrink-0">{log.time}</p>
               </div>
@@ -586,6 +660,7 @@ export default function App() {
   const [modal, setModal] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [screen, setScreen] = useState('home')
+  const [currentUser, setCurrentUser] = useState(getCurrentUser)
 
   // Load logs from Supabase on mount
   useEffect(() => {
@@ -596,11 +671,14 @@ export default function App() {
   }, [])
 
   async function addLog(entry) {
+    const user = USERS.find(u => u.id === currentUser)
     const newLog = {
       id: Date.now(),
       date: today(),
       time: nowTime(),
       timestamp: Date.now(),
+      logged_by: user ? `${user.emoji} ${user.name}` : 'Unknown',
+      device_info: getDeviceInfo(),
       ...entry,
     }
     await saveLog(newLog)
@@ -642,8 +720,8 @@ export default function App() {
       redness: 'Kemerahan', discharge: 'Ada Cairan', smell: 'Berbau'
     }
     const appearanceText = appearance.length > 0
-      ? appearance.map(a => appearanceLabels[a]).join(', ')
-      : 'Tidak ada keluhan khusus'
+      ? `${appearance.map(a => appearanceLabels[a]).join(', ')} · ${appearanceOther}`
+      : appearanceOther
     addLog({
       type: 'wound', notes, dressing_changed: dressingChanged,
       summary: `${conditionLabels[condition]} · ${appearanceText} · Perban: ${dressingChanged ? 'Diganti' : 'Belum diganti'}`,
@@ -654,6 +732,10 @@ export default function App() {
   const dateStr = new Date().toLocaleDateString('id-ID', {
     weekday: 'long', day: 'numeric', month: 'long'
   })
+
+  if (!currentUser) {
+    return <UserPickerScreen onPicked={setCurrentUser} />
+  }
 
   if (loading) {
     return (
@@ -676,12 +758,25 @@ export default function App() {
         <p className="text-gray-400 text-sm capitalize">{dateStr}</p>
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-black text-gray-800">🌸 MamiCare</h1>
-          <button
-            onClick={() => setScreen('rekap')}
-            className="bg-gray-100 text-gray-600 font-semibold text-sm px-4 py-2 rounded-full active:bg-gray-200"
-          >
-            📋 Rekap
-          </button>
+          <div className="flex gap-2">
+            {(() => {
+              const user = USERS.find(u => u.id === currentUser)
+              return (
+                <button
+                  onClick={() => { setCurrentUser(null); localStorage.removeItem('mamicare_user') }}
+                  className="bg-gray-100 text-gray-600 font-semibold text-sm px-3 py-2 rounded-full active:bg-gray-200"
+                >
+                  {user ? user.emoji : '👤'}
+                </button>
+              )
+            })()}
+            <button
+              onClick={() => setScreen('rekap')}
+              className="bg-gray-100 text-gray-600 font-semibold text-sm px-4 py-2 rounded-full active:bg-gray-200"
+            >
+              📋 Rekap
+            </button>
+          </div>
         </div>
       </div>
 
