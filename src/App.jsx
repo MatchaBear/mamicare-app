@@ -1,3 +1,4 @@
+import { useState, useEffect, useRef } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
@@ -656,6 +657,7 @@ function RekapScreen({ logs, onBack }) {
 
 // ─── Main App ────────────────────────────────────────────────
 export default function App() {
+  const scrollRef = useRef(null)
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
@@ -663,7 +665,6 @@ export default function App() {
   const [screen, setScreen] = useState('home')
   const [currentUser, setCurrentUser] = useState(getCurrentUser)
   const [refreshing, setRefreshing] = useState(false)
-
 
   // Load logs from Supabase on mount
   useEffect(() => {
@@ -693,25 +694,9 @@ export default function App() {
       )
       .subscribe()
 
-    // Disable iOS Safari pull-to-refresh only, allow normal scroll
-    let startY = 0
-    const handleTouchStart = (e) => { startY = e.touches[0].clientY }
-    const preventPullToRefresh = (e) => {
-      const scrollEl = e.target.closest('.overflow-y-auto')
-      if (!scrollEl) return
-      const movingDown = e.touches[0].clientY > startY
-      if (movingDown && scrollEl.scrollTop === 0) {
-        e.preventDefault()
-      }
-    }
-    document.addEventListener('touchstart', handleTouchStart, { passive: true })
-    document.addEventListener('touchmove', preventPullToRefresh, { passive: false })
-
     // Single cleanup for everything
     return () => {
       supabase.removeChannel(channel)
-      document.removeEventListener('touchstart', handleTouchStart)
-      document.removeEventListener('touchmove', preventPullToRefresh)
     }
   }, [])
 
@@ -843,11 +828,30 @@ export default function App() {
       </div>
 
       <div
-        className="flex-1 overflow-y-auto px-4 pt-5 pb-32 overscroll-none"
-        onTouchStart={e => { e._startY = e.touches[0].clientY }}
-        onTouchEnd={e => {
-          const diff = e.changedTouches[0].clientY - e._startY
-          if (diff > 80 && !refreshing) handleRefresh()
+        className="flex-1 overflow-y-scroll px-4 pt-5 pb-32"
+        ref={scrollRef}
+        onTouchStart={e => {
+          if (scrollRef.current.scrollTop === 0) {
+            scrollRef.current._touchStartY = e.touches[0].clientY
+            scrollRef.current._pulling = true
+          } else {
+            scrollRef.current._pulling = false
+          }
+        }}
+        onTouchMove={e => {
+          if (!scrollRef.current._pulling) return
+          const diff = e.touches[0].clientY - scrollRef.current._touchStartY
+          if (diff > 0) {
+            e.preventDefault()
+            scrollRef.current._pullDiff = diff
+          }
+        }}
+        onTouchEnd={() => {
+          if (scrollRef.current._pulling && scrollRef.current._pullDiff > 80) {
+            handleRefresh()
+          }
+          scrollRef.current._pulling = false
+          scrollRef.current._pullDiff = 0
         }}
       >
         {refreshing && (
