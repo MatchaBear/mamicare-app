@@ -661,6 +661,8 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [screen, setScreen] = useState('home')
   const [currentUser, setCurrentUser] = useState(getCurrentUser)
+  const [refreshing, setRefreshing] = useState(false)
+
 
   // Load logs from Supabase on mount
   useEffect(() => {
@@ -694,6 +696,13 @@ export default function App() {
     // Cleanup on unmount
     return () => { supabase.removeChannel(channel) }
   }, [])
+
+  async function handleRefresh() {
+    setRefreshing(true)
+    const data = await loadLogs()
+    setLogs(data)
+    setRefreshing(false)
+  }
 
   async function addLog(entry) {
     const user = USERS.find(u => u.id === currentUser)
@@ -805,8 +814,19 @@ export default function App() {
         </div>
       </div>
 
-      <div className="px-4 pt-5 pb-32">
-        <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
+      {refreshing && (
+        <div className="flex justify-center py-3">
+          <div className="text-gray-400 text-sm animate-spin">🌸</div>
+        </div>
+      )}
+      <div
+        className="px-4 pt-5 pb-32"
+        onTouchStart={e => { e._startY = e.touches[0].clientY }}
+        onTouchEnd={e => {
+          const diff = e.changedTouches[0].clientY - e._startY
+          if (diff > 80 && !refreshing) handleRefresh()
+        }}
+      >        <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
 
         <div className="grid grid-cols-3 gap-3 mb-6">
           {[
