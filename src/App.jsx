@@ -105,6 +105,7 @@ const SAFE_BOTTOM_PAD = 'calc(env(safe-area-inset-bottom, 0px) + 24px)'
 const APP_VIEWPORT_HEIGHT = '100dvh'
 const TRIGGER_PX = 80
 const MAX_PULL_Y = 56
+const MOBILE_PULL_Y = 76
 const MIN_REFRESH_MS = 420
 const MAX_OVERPULL_Y = 12
 
@@ -1309,25 +1310,15 @@ export default function App() {
 
   /* ---------------- Derived pull values ---------------- */
   const pullProgress = Math.min(pullRaw / TRIGGER_PX, 1)
-  const revealY = refreshing ? MAX_PULL_Y : pullProgress * MAX_PULL_Y
+  const indicatorMaxPullY = isMobileLayout ? MOBILE_PULL_Y : MAX_PULL_Y
+  const revealY = refreshing ? indicatorMaxPullY : pullProgress * indicatorMaxPullY
   const overpullY = refreshing
     ? 0
     : Math.min(Math.max(pullRaw - TRIGGER_PX, 0) * 0.18, MAX_OVERPULL_Y)
-  const mobileHeaderProgress = refreshing ? 1 : pullProgress
-  const mobileContentY = Math.min(pullRaw * 0.18, 18) + overpullY
-  const contentOffsetY = isMobileLayout ? mobileContentY : overpullY
   const showPullIndicator = refreshing || pullRaw > 0
   const eased = refreshing || pullRaw === 0
-  const mobileHeaderLabel = refreshing
-    ? 'Memperbarui'
-    : pullProgress >= 1
-      ? 'Lepaskan'
-      : showPullIndicator
-        ? 'Tarik'
-        : ''
-  const mobileHeaderWidth = showPullIndicator || refreshing
-    ? 40 + mobileHeaderProgress * 92
-    : 40
+  const mobileIndicatorOffsetY = refreshing ? 0 : (1 - pullProgress) * -14
+  const mobileIndicatorScale = refreshing ? 1 : 0.94 + pullProgress * 0.06
 
   /* ---------------- Actions ---------------- */
   async function addLog(entry) {
@@ -1551,37 +1542,13 @@ export default function App() {
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="flex md:hidden items-center justify-center gap-2 rounded-full border border-transparent bg-gray-100 text-gray-600 h-10 px-3 active:bg-gray-200 disabled:opacity-60 overflow-hidden transition-[width,background-color,border-color,color] duration-200"
-              style={{
-                width: mobileHeaderWidth,
-                backgroundColor: showPullIndicator || refreshing ? '#eff6ff' : undefined,
-                borderColor: showPullIndicator || refreshing ? '#dbeafe' : undefined,
-                color: showPullIndicator || refreshing ? '#0369a1' : undefined,
-              }}
+              className="flex md:hidden bg-gray-100 text-gray-600 px-3 py-2 rounded-full active:bg-gray-200 disabled:opacity-60"
               aria-label="Refresh"
             >
               <RefreshCw
                 size={18}
-                className={refreshing ? 'animate-spin' : ''}
-                style={
-                  refreshing
-                    ? undefined
-                    : {
-                        transform: `rotate(${pullProgress * 180}deg)`,
-                        transition: 'transform 0.08s',
-                      }
-                }
+                className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-500'}
               />
-
-              <span
-                className="whitespace-nowrap text-sm font-semibold transition-[max-width,opacity] duration-200"
-                style={{
-                  maxWidth: showPullIndicator || refreshing ? 96 : 0,
-                  opacity: showPullIndicator || refreshing ? 1 : 0,
-                }}
-              >
-                {mobileHeaderLabel}
-              </span>
             </button>
 
             <button
@@ -1632,7 +1599,47 @@ export default function App() {
           </div>
         </div>
 
-        {/* Desktop keeps the under-header slot; mobile feedback lives in the header chip */}
+        <div
+          className="pointer-events-none flex md:hidden justify-center overflow-hidden"
+          style={{
+            height: revealY,
+            transition: eased ? 'height 0.25s ease' : 'none',
+          }}
+        >
+          <div
+            className="mt-2 flex items-center gap-3 rounded-full border border-sky-200 bg-white/95 px-5 py-3 shadow-[0_12px_30px_rgba(14,165,233,0.18)] backdrop-blur-sm"
+            style={{
+              opacity: showPullIndicator ? 1 : 0,
+              transform: `translateY(${mobileIndicatorOffsetY}px) scale(${mobileIndicatorScale})`,
+              transition: eased
+                ? 'transform 0.25s ease, opacity 0.25s ease'
+                : 'none',
+            }}
+          >
+            <RefreshCw
+              size={18}
+              className={refreshing ? 'animate-spin text-sky-500' : 'text-sky-500'}
+              style={
+                refreshing
+                  ? undefined
+                  : {
+                      transform: `rotate(${pullProgress * 180}deg)`,
+                      transition: 'transform 0.08s',
+                    }
+              }
+            />
+
+            <span className="text-[15px] font-semibold tracking-tight text-slate-700">
+              {refreshing
+                ? 'Memperbarui...'
+                : pullProgress >= 1
+                  ? 'Lepaskan untuk refresh'
+                  : 'Tarik untuk refresh'}
+            </span>
+          </div>
+        </div>
+
+        {/* Desktop keeps the under-header slot; mobile uses a louder pill in the same reveal lane */}
         <div
           className="flex-1 min-h-0 overflow-y-auto px-4"
           ref={scrollRef}
@@ -1645,7 +1652,7 @@ export default function App() {
           <div
             className="pt-5"
             style={{
-              transform: `translateY(${contentOffsetY}px)`,
+              transform: `translateY(${overpullY}px)`,
               transition: eased ? 'transform 0.25s ease' : 'none',
             }}
           >
