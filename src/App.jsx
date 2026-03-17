@@ -153,11 +153,6 @@ function getDeviceInfo() {
   return '🌐 Browser'
 }
 
-function getIsMobileLayout() {
-  if (typeof window === 'undefined') return true
-  return window.matchMedia('(max-width: 767px)').matches
-}
-
 /* ============================================================
  * Data layer (Supabase)
  * ============================================================
@@ -1147,7 +1142,6 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [screen, setScreen] = useState('home')
   const [currentUser, setCurrentUser] = useState(getCurrentUser)
-  const [isMobileLayout, setIsMobileLayout] = useState(getIsMobileLayout)
 
   const [refreshing, setRefreshing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1204,23 +1198,6 @@ export default function App() {
       isMounted = false
       supabase.removeChannel(channel)
     }
-  }, [])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return undefined
-
-    const media = window.matchMedia('(max-width: 767px)')
-    const syncLayout = event => setIsMobileLayout(event.matches)
-
-    setIsMobileLayout(media.matches)
-
-    if (typeof media.addEventListener === 'function') {
-      media.addEventListener('change', syncLayout)
-      return () => media.removeEventListener('change', syncLayout)
-    }
-
-    media.addListener(syncLayout)
-    return () => media.removeListener(syncLayout)
   }, [])
 
   async function handleRefresh() {
@@ -1313,8 +1290,6 @@ export default function App() {
   const overpullY = refreshing
     ? 0
     : Math.min(Math.max(pullRaw - TRIGGER_PX, 0) * 0.18, MAX_OVERPULL_Y)
-  const mobilePullY = revealY + overpullY
-  const contentOffsetY = isMobileLayout ? mobilePullY : overpullY
   const showPullIndicator = refreshing || pullRaw > 0
   const eased = refreshing || pullRaw === 0
 
@@ -1585,7 +1560,44 @@ export default function App() {
           </div>
         </div>
 
-        {/* Pill reveal owns the first stage; only extra drag beyond the threshold rubber-bands the content */}
+        <div
+          className="pointer-events-none flex md:hidden items-center justify-center overflow-hidden"
+          style={{
+            height: revealY,
+            transition: eased ? 'height 0.25s ease' : 'none',
+          }}
+        >
+          <div
+            className="flex items-center gap-2 text-sm font-medium text-gray-500"
+            style={{
+              opacity: showPullIndicator ? 1 : 0,
+              transition: eased ? 'opacity 0.25s ease' : 'none',
+            }}
+          >
+            <RefreshCw
+              size={16}
+              className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-400'}
+              style={
+                refreshing
+                  ? undefined
+                  : {
+                      transform: `rotate(${pullProgress * 180}deg)`,
+                      transition: 'transform 0.08s',
+                    }
+              }
+            />
+
+            <span>
+              {refreshing
+                ? 'Memperbarui...'
+                : pullProgress >= 1
+                  ? 'Lepaskan untuk refresh'
+                  : 'Tarik untuk refresh'}
+            </span>
+          </div>
+        </div>
+
+        {/* Reveal slot owns the first stage; only extra drag beyond the threshold rubber-bands the content */}
         <div
           className="flex-1 min-h-0 overflow-y-auto px-4"
           ref={scrollRef}
@@ -1598,41 +1610,10 @@ export default function App() {
           <div
             className="pt-5"
             style={{
-              transform: `translateY(${contentOffsetY}px)`,
+              transform: `translateY(${overpullY}px)`,
               transition: eased ? 'transform 0.25s ease' : 'none',
             }}
           >
-            <div
-              className="md:hidden flex items-center justify-center gap-2 text-sm font-medium text-gray-500"
-              style={{
-                height: MAX_PULL_Y,
-                marginTop: -MAX_PULL_Y,
-                opacity: showPullIndicator ? 1 : 0,
-                transition: eased ? 'opacity 0.25s ease' : 'none',
-              }}
-            >
-              <RefreshCw
-                size={16}
-                className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-400'}
-                style={
-                  refreshing
-                    ? undefined
-                    : {
-                        transform: `rotate(${pullProgress * 180}deg)`,
-                        transition: 'transform 0.08s',
-                      }
-                }
-              />
-
-              <span>
-                {refreshing
-                  ? 'Memperbarui...'
-                  : pullProgress >= 1
-                    ? 'Lepaskan untuk refresh'
-                    : 'Tarik untuk refresh'}
-              </span>
-            </div>
-
             <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
 
             <div className="grid grid-cols-3 gap-3 mb-6">
