@@ -49,8 +49,8 @@ import { supabase } from './supabase'
  *      to reduce duplication bugs.
  *
  * 6. Improved ID generation:
- *    - Uses `crypto.randomUUID()` when available instead of only Date.now().
- *    - Helps avoid collisions across multiple devices.
+ *    - Generates safe numeric IDs to match the current Supabase `bigint` column.
+ *    - Uses crypto-backed randomness when available to reduce cross-device collisions.
  *
  * 7. Cleaned up wording mismatch in wound form:
  *    - "Other appearance" text is now clearly optional in the UI and logic.
@@ -75,10 +75,15 @@ const nowTime = () =>
   })
 
 function generateId() {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID()
+  const base = Date.now() * 4096
+
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const random = new Uint16Array(1)
+    crypto.getRandomValues(random)
+    return base + (random[0] % 4096)
   }
-  return `log-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+
+  return base + Math.floor(Math.random() * 4096)
 }
 
 function upsertLogInState(prevLogs, incomingLog) {
