@@ -1561,22 +1561,22 @@ export default function App() {
         </div>
 
         <div
-          className="pointer-events-none flex md:hidden items-center justify-center overflow-hidden"
+          className="pointer-events-none flex md:hidden overflow-hidden"
           style={{
             height: revealY,
             transition: eased ? 'height 0.25s ease' : 'none',
           }}
         >
           <div
-            className="flex items-center gap-2 text-sm font-medium text-gray-500"
+            className="flex h-full w-full items-center justify-center gap-2 border-y border-sky-100 bg-sky-50 text-sm font-semibold text-slate-600"
             style={{
               opacity: showPullIndicator ? 1 : 0,
               transition: eased ? 'opacity 0.25s ease' : 'none',
             }}
           >
             <RefreshCw
-              size={16}
-              className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-400'}
+              size={18}
+              className={refreshing ? 'animate-spin text-sky-500' : 'text-sky-500'}
               style={
                 refreshing
                   ? undefined
@@ -1589,10 +1589,10 @@ export default function App() {
 
             <span>
               {refreshing
-                ? 'Memperbarui...'
+                ? 'Memperbarui catatan...'
                 : pullProgress >= 1
-                  ? 'Lepaskan untuk refresh'
-                  : 'Tarik untuk refresh'}
+                  ? 'Lepaskan untuk memperbarui'
+                  : 'Tarik ke bawah untuk refresh'}
             </span>
           </div>
         </div>
