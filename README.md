@@ -35,6 +35,16 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 
 ## 🗺️ The Quest Log (Changelog)
 
+### 🏔️ v1.2.0 — *"The Two Towers"*
+`2026-03-17`
+- ✅ Modal sheet redesign — flex-col structure, header always fully visible
+- ✅ Explicit ✕ close button di semua modal (Minum, Makan, Obat, Luka)
+- ✅ Drag pill affordance di bottom sheet — visual cue bisa di-dismiss
+- ✅ Pull-to-refresh architecture rewrite — wrapper/scroller fully separated
+- ✅ Touch listener pakai `capture:true` — intercept sebelum event sampai ke scroll child
+- ✅ `translateY` dipindah ke non-scrollable wrapper (resolves iOS GPU compositing layer conflict)
+- ⚠️ Pull rubber-band visual effect — gesture terdeteksi & data refreshes, rubber-band UX *in progress*
+
 ### 🏆 v1.1.0 — *"The Shire Calls"*
 `2026-03-17`
 - ✅ Realtime sync — perubahan dari HP lain langsung muncul tanpa refresh
@@ -87,12 +97,15 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 
 ## 🔭 The Road Goes Ever On (Roadmap)
 
-### 🧭 v1.2.0 — *"The Palantír"*
+### 🧭 v1.2.1 — *"The Paths of the Dead"* *(next)*
+- [ ] 🫳 Pull-to-refresh rubber-band visual — content stretches & snaps back natively
+
+### 🏰 v1.3.0 — *"The Palantír"*
 - [ ] 🔔 Push notification reminders — waktunya obat, waktunya minum
 - [ ] 📊 Dashboard Berry — grafik mingguan minum & makan
 - [ ] 🚨 Alert kalau minum kurang dari target
 
-### 👑 v1.3.0 — *"The Scouring of the Shire"*
+### 👑 v1.4.0 — *"The Scouring of the Shire"*
 - [ ] 📄 Export PDF untuk dokter
 - [ ] 📸 Foto luka — upload & lihat progress
 
