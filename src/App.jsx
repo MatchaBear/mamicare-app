@@ -664,6 +664,11 @@ export default function App() {
   const [screen, setScreen] = useState('home')
   const [currentUser, setCurrentUser] = useState(getCurrentUser)
   const [refreshing, setRefreshing] = useState(false)
+  const [pullVisual, setPullVisual] = useState(0) // 0–1, drives the indicator height
+  const touchStartYRef = useRef(0)
+  const isPullingRef = useRef(false)
+  const pullDiffRef = useRef(0)
+  const handleRefreshRef = useRef(null) // always-fresh ref, avoids stale closure in touch handler
 
   // Load logs from Supabase on mount
   useEffect(() => {
@@ -705,6 +710,61 @@ export default function App() {
     setLogs(data)
     setRefreshing(false)
   }
+
+  // Keep the ref pointing to the latest handleRefresh so touch handler never goes stale
+  handleRefreshRef.current = handleRefresh
+
+  // ─── Non-passive touch handler for pull-to-refresh ──────────
+  // We MUST use addEventListener({ passive: false }) — JSX onTouchMove is
+  // always passive on mobile, so e.preventDefault() would be silently ignored,
+  // leaving the browser free to do native overscroll/bounce instead.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+
+    function onTouchStart(e) {
+      if (el.scrollTop === 0) {
+        touchStartYRef.current = e.touches[0].clientY
+        isPullingRef.current = true
+        pullDiffRef.current = 0
+      } else {
+        isPullingRef.current = false
+      }
+    }
+
+    function onTouchMove(e) {
+      if (!isPullingRef.current) return
+      const diff = e.touches[0].clientY - touchStartYRef.current
+      if (diff > 0) {
+        e.preventDefault() // only works because passive: false below
+        pullDiffRef.current = diff
+        // Clamp progress to 0–1 with a little rubber-band resistance
+        setPullVisual(Math.min(diff / 80, 1))
+      } else {
+        isPullingRef.current = false
+        setPullVisual(0)
+      }
+    }
+
+    function onTouchEnd() {
+      if (isPullingRef.current && pullDiffRef.current > 80) {
+        handleRefreshRef.current()
+      }
+      isPullingRef.current = false
+      pullDiffRef.current = 0
+      setPullVisual(0)
+    }
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true })
+    el.addEventListener('touchmove', onTouchMove, { passive: false }) // <-- key
+    el.addEventListener('touchend', onTouchEnd, { passive: true })
+
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart)
+      el.removeEventListener('touchmove', onTouchMove)
+      el.removeEventListener('touchend', onTouchEnd)
+    }
+  }, []) // empty deps — all mutable state accessed via refs
 
   async function addLog(entry) {
     const user = USERS.find(u => u.id === currentUser)
@@ -826,42 +886,33 @@ export default function App() {
         </div>
       </div>
 
+      {/* ── Pull-to-refresh indicator ─────────────────────────────
+          Lives OUTSIDE the scroll container so the header never moves.
+          Height animates 0→52px as the user pulls, stays at 52px while refreshing. */}
+      <div
+        className="overflow-hidden transition-all duration-150 flex-shrink-0"
+        style={{ height: refreshing ? 52 : pullVisual * 52 }}
+      >
+        <div className="flex justify-center items-center h-[52px]">
+          <div className="flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-md">
+            <RefreshCw
+              size={16}
+              className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-400'}
+              style={{ transform: `rotate(${pullVisual * 180}deg)`, transition: 'transform 0.1s' }}
+            />
+            <span className="text-sm text-gray-500">
+              {refreshing ? 'Memperbarui...' : pullVisual >= 1 ? '🙌 Lepaskan!' : 'Tarik untuk refresh'}
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div
         className="flex-1 overflow-y-scroll px-4 pt-5 pb-32"
         ref={scrollRef}
-        onTouchStart={e => {
-          if (scrollRef.current.scrollTop === 0) {
-            scrollRef.current._touchStartY = e.touches[0].clientY
-            scrollRef.current._pulling = true
-          } else {
-            scrollRef.current._pulling = false
-          }
-        }}
-        onTouchMove={e => {
-          if (!scrollRef.current._pulling) return
-          const diff = e.touches[0].clientY - scrollRef.current._touchStartY
-          if (diff > 0) {
-            e.preventDefault()
-            scrollRef.current._pullDiff = diff
-          }
-        }}
-        onTouchEnd={() => {
-          if (scrollRef.current._pulling && scrollRef.current._pullDiff > 80) {
-            handleRefresh()
-          }
-          scrollRef.current._pulling = false
-          scrollRef.current._pullDiff = 0
-        }}
+        style={{ overscrollBehavior: 'none' }}
       >
-        {refreshing && (
-          <div className="flex justify-center items-center py-4 mb-2">
-            <div className="flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-md">
-              <RefreshCw size={16} className="animate-spin text-sky-400" />
-              <span className="text-sm text-gray-500">Memperbarui...</span>
-            </div>
-          </div>
-        )}
-
+        {/* No inline touch handlers here — handled by useEffect with passive:false */}
         <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
         <div className="grid grid-cols-3 gap-3 mb-6">
           {[

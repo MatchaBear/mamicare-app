@@ -35,6 +35,15 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 
 ## 🗺️ The Quest Log (Changelog)
 
+### 🏆 v1.1.0 — *"The Shire Calls"*
+`2026-03-17`
+- ✅ Realtime sync — perubahan dari HP lain langsung muncul tanpa refresh
+- ✅ Fixed header — MamiCare header tidak ikut bergerak saat scroll atau pull
+- ✅ Pull-to-refresh gesture — tarik konten ke bawah untuk refresh data
+- ✅ Non-passive touch handler — iOS Safari & Chrome mobile conflict resolved
+- ✅ Pull indicator animasi — icon berputar saat ditarik, "Lepaskan!" saat threshold tercapai
+- ✅ Indicator posisi fixed antara header dan konten — header 100% tidak bergerak
+
 ### 🏆 v1.0.0 — *"The One Ring"*
 `2026-03-18`
 - ✅ Supabase cloud sync — semua HP baca/tulis ke DB yang sama
@@ -78,10 +87,8 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 
 ## 🔭 The Road Goes Ever On (Roadmap)
 
-### 🧭 v1.1.0 — *"The Shire Calls"* *(next)*
+### 🧭 v1.2.0 — *"The Palantír"*
 - [ ] 🔔 Push notification reminders — waktunya obat, waktunya minum
-
-### 🏰 v1.2.0 — *"The Palantír"*
 - [ ] 📊 Dashboard Berry — grafik mingguan minum & makan
 - [ ] 🚨 Alert kalau minum kurang dari target
 
