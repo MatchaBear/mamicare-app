@@ -2,6 +2,7 @@
 
 > *"Even the smallest person can change the course of the future."*
 > — Lady Galadriel
+> **Current status:** `v1.2.0` stands as the golden baseline of `main`; every future quest branches from this stable shrine.
 
 ---
 
@@ -40,10 +41,10 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 - ✅ Modal sheet redesign — flex-col structure, header always fully visible
 - ✅ Explicit ✕ close button on all modals (Drink, Meal, Medication, Wound)
 - ✅ Drag pill affordance on bottom sheet — visual cue that it can be dismissed
-- ✅ Pull-to-refresh architecture rewrite — wrapper and scroller fully separated
+- ✅ Pull-to-refresh architecture rewrite — wrapper and scroller now act independently
 - ✅ Touch listener with `capture:true` — intercepts gesture before scroll child receives it
 - ✅ `translateY` moved to non-scrollable wrapper (resolves iOS GPU compositing layer conflict)
-- ⚠️ Pull rubber-band visual effect — gesture detected & data refreshes correctly, rubber-band UX *in progress*
+- ✅ Pull-to-refresh rubber-band effect completes successfully — drag the content under the header, watch the refresh pill, and release for the same desktop animation
 
 ### 🏆 v1.1.0 — *"The Shire Calls"*
 `2026-03-17`
@@ -98,7 +99,7 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 ## 🔭 The Road Goes Ever On (Roadmap)
 
 ### 🧭 v1.2.1 — *"The Paths of the Dead"* *(next)*
-- [ ] 🫳 Pull-to-refresh rubber-band — content stretches and snaps back natively on drag
+- [ ] 🫳 Habit reminders — quick sip/drink nudges for low-output days
 
 ### 🏰 v1.3.0 — *"The Palantír"*
 - [ ] 🔔 Push notification reminders — medication time, drink reminders
