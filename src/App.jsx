@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
+import { supabase } from './supabase'
 
 // ─── Helpers ────────────────────────────────────────────────
 const today = () => new Date().toISOString().split('T')[0]
@@ -7,12 +8,23 @@ const nowTime = () => new Date().toLocaleTimeString('id-ID', {
   hour: '2-digit', minute: '2-digit'
 })
 
-function loadLogs() {
-  try { return JSON.parse(localStorage.getItem('mamicare_logs') || '[]') }
-  catch { return [] }
+async function loadLogs() {
+  const { data, error } = await supabase
+    .from('logs')
+    .select('*')
+    .order('timestamp', { ascending: false })
+  if (error) { console.error(error); return [] }
+  return data || []
 }
-function saveLogs(logs) {
-  localStorage.setItem('mamicare_logs', JSON.stringify(logs))
+
+async function saveLog(log) {
+  const { error } = await supabase.from('logs').upsert(log)
+  if (error) console.error(error)
+}
+
+async function deleteLog(id) {
+  const { error } = await supabase.from('logs').delete().eq('id', id)
+  if (error) console.error(error)
 }
 
 // ─── PWA Update Prompt ───────────────────────────────────────
@@ -569,24 +581,34 @@ function RekapScreen({ logs, onBack }) {
 
 // ─── Main App ────────────────────────────────────────────────
 export default function App() {
-  const [logs, setLogs] = useState(loadLogs)
+  const [logs, setLogs] = useState([])
+  const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
   const [deleteTarget, setDeleteTarget] = useState(null)
-  const [screen, setScreen] = useState('home')   // 'home' | 'rekap'
+  const [screen, setScreen] = useState('home')
 
-  useEffect(() => { saveLogs(logs) }, [logs])
+  // Load logs from Supabase on mount
+  useEffect(() => {
+    loadLogs().then(data => {
+      setLogs(data)
+      setLoading(false)
+    })
+  }, [])
 
-  function addLog(entry) {
-    setLogs(prev => [{
+  async function addLog(entry) {
+    const newLog = {
       id: Date.now(),
       date: today(),
       time: nowTime(),
       timestamp: Date.now(),
       ...entry,
-    }, ...prev])
+    }
+    await saveLog(newLog)
+    setLogs(prev => [newLog, ...prev])
   }
 
-  function deleteLog(id) {
+  async function handleDelete(id) {
+    await deleteLog(id)
     setLogs(prev => prev.filter(l => l.id !== id))
     setDeleteTarget(null)
   }
@@ -623,7 +645,7 @@ export default function App() {
       ? appearance.map(a => appearanceLabels[a]).join(', ')
       : 'Tidak ada keluhan khusus'
     addLog({
-      type: 'wound', notes, dressingChanged,
+      type: 'wound', notes, dressing_changed: dressingChanged,
       summary: `${conditionLabels[condition]} · ${appearanceText} · Perban: ${dressingChanged ? 'Diganti' : 'Belum diganti'}`,
     })
     setModal(null)
@@ -633,15 +655,23 @@ export default function App() {
     weekday: 'long', day: 'numeric', month: 'long'
   })
 
-  // ── Show Rekap screen ──
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-5xl mb-4">🌸</p>
+          <p className="text-gray-500 text-lg">Memuat data...</p>
+        </div>
+      </div>
+    )
+  }
+
   if (screen === 'rekap') {
     return <RekapScreen logs={logs} onBack={() => setScreen('home')} />
   }
 
-  // ── Home screen ──
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <div className="bg-white px-5 pt-12 pb-4 shadow-sm">
         <p className="text-gray-400 text-sm capitalize">{dateStr}</p>
         <div className="flex items-center justify-between">
@@ -655,7 +685,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Content */}
       <div className="px-4 pt-5 pb-32">
         <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
 
@@ -688,7 +717,7 @@ export default function App() {
       {deleteTarget && (
         <DeleteConfirmModal
           log={deleteTarget}
-          onConfirm={() => deleteLog(deleteTarget.id)}
+          onConfirm={() => handleDelete(deleteTarget.id)}
           onCancel={() => setDeleteTarget(null)}
         />
       )}
