@@ -1,9 +1,9 @@
 # 🧪 MamiCare Unit Test Results
 
 > Tested on: **2026-03-18**
-> Environment: **Chrome Incognito + localhost:5173**
+> Environment: **Chrome Incognito (localhost) + Vercel Production (multi-device)**
 > Tester: **Berry (MatchaBear)**
-> Status: **26/26 PASSED ✅ — ALL TESTED**
+> Status: **29/29 PASSED ✅ — ALL TESTED**
 
 ---
 
@@ -39,7 +39,7 @@
 
 | # | Test Case | Result | Remarks |
 |---|---|---|---|
-| TC-14 | Tap preset → nama auto-isi, tombol "Obat Lainnya" available | ✅ | Obat Lainnya button memunculkan free text field |
+| TC-14 | Tap preset → nama auto-isi, tombol "Obat Lainnya" available | ✅ | Obat Lainnya memunculkan free text field |
 | TC-15 | Bisa ketik nama obat custom via Obat Lainnya | ✅ | |
 | TC-16 | SIMPAN disabled kalau nama kosong + status belum dipilih | ✅ | |
 
@@ -66,15 +66,15 @@
 | TC-23 | Tap 📋 Rekap → masuk rekap screen | ✅ | |
 | TC-24 | Hari ini auto-expand | ✅ | |
 | TC-25 | Entry di rekap menampilkan nama + device | ✅ | — 🧙 Berry · 💻 Mac |
-| TC-26 | Tap ← Kembali → balik home | ✅ | Multi-day view belum tested, dimonitor setelah beberapa hari |
+| TC-26 | Tap ← Kembali → balik home | ✅ | Multi-day view dimonitor setelah beberapa hari |
 
 ## MULTI-DEVICE SYNC
 
 | # | Test Case | Result | Remarks |
 |---|---|---|---|
-| TC-27 | Log dari iPhone → refresh Mac browser → data muncul | ⏳ | Pending Vercel deploy |
-| TC-28 | Log dari Mac → refresh iPhone → data muncul | ⏳ | Pending Vercel deploy |
-| TC-29 | Delete dari satu device → refresh device lain → entry hilang | ⏳ | Pending Vercel deploy |
+| TC-27 | Log dari iPhone → refresh Mac browser → data muncul | ✅ | Tested: 📱 iPhone → 💻 Mac |
+| TC-28 | Log dari Mac → refresh iPhone → data muncul | ✅ | Tested: 💻 Mac → 📱 iPhone |
+| TC-29 | Delete dari satu device → refresh device lain → entry hilang | ✅ | Confirmed deleted from Supabase |
 
 ---
 
