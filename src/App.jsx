@@ -788,7 +788,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
       <div className="bg-white px-5 pt-12 pb-4 shadow-sm sticky top-0 z-40">
         <p className="text-gray-400 text-sm capitalize">{dateStr}</p>
         <div className="flex items-center justify-between">
@@ -826,7 +826,7 @@ export default function App() {
       </div>
 
       <div
-        className="px-4 pt-5 pb-32 overflow-y-auto"
+        className="flex-1 overflow-y-auto px-4 pt-5 pb-32 overscroll-none"
         onTouchStart={e => { e._startY = e.touches[0].clientY }}
         onTouchEnd={e => {
           const diff = e.changedTouches[0].clientY - e._startY
