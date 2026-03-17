@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, X } from 'lucide-react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import { supabase } from './supabase'
 
@@ -112,14 +112,30 @@ function NotesField({ value, onChange }) {
 }
 
 // ─── Reusable: Modal Shell ───────────────────────────────────
-function ModalShell({ onClose, children }) {
+// Explicit ✕ close button baked in — Bu Susi and Nyok should NOT have
+// to discover that tapping the backdrop closes the modal.
+function ModalShell({ onClose, title, children }) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-end z-50" onClick={onClose}>
       <div
-        className="bg-white w-full rounded-t-3xl p-6 pb-10 max-h-[90vh] overflow-y-auto"
+        className="bg-white w-full rounded-t-3xl max-h-[92vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
-        {children}
+        {/* Modal header: title + explicit close button */}
+        <div className="flex items-center justify-between px-6 pt-6 pb-2 sticky top-0 bg-white z-10 border-b border-gray-100">
+          <h2 className="text-2xl font-bold text-gray-800">{title}</h2>
+          <button
+            onClick={onClose}
+            className="bg-gray-100 hover:bg-gray-200 active:bg-gray-300 rounded-full p-2 transition-colors"
+            aria-label="Tutup"
+          >
+            <X size={22} className="text-gray-500" />
+          </button>
+        </div>
+        {/* Content */}
+        <div className="px-6 pb-10 pt-4">
+          {children}
+        </div>
       </div>
     </div>
   )
@@ -209,8 +225,7 @@ function DrinkModal({ onClose, onSave }) {
   ]
 
   return (
-    <ModalShell onClose={onClose}>
-      <h2 className="text-2xl font-bold text-gray-800 mb-5">💧 Catat Minum</h2>
+    <ModalShell onClose={onClose} title="💧 Catat Minum">
       <p className="text-gray-500 text-lg mb-3">Minuman apa?</p>
       <OptionGroup options={drinkTypes} selected={type} onSelect={setType} cols={2} />
       <p className="text-gray-500 text-lg mb-3">Berapa banyak?</p>
@@ -243,9 +258,7 @@ function MealModal({ onClose, onSave }) {
   const canSave = mealType && foodText.trim().length > 0 && portion
 
   return (
-    <ModalShell onClose={onClose}>
-      <h2 className="text-2xl font-bold text-gray-800 mb-5">🍽️ Catat Makan</h2>
-
+    <ModalShell onClose={onClose} title="🍽️ Catat Makan">
       <p className="text-gray-500 text-lg mb-3">Waktu makan?</p>
       <OptionGroup options={mealTypes} selected={mealType} onSelect={setMealType} cols={2} />
 
@@ -277,7 +290,6 @@ function MedModal({ onClose, onSave }) {
   const [status, setStatus] = useState(null)
   const [notes, setNotes] = useState('')
 
-  // Common diabetes meds — Berry can edit this list later
   const presets = [
     'Metformin', 'Glibenclamide', 'Glimepiride',
     'Insulin', 'Acarbose', 'Vitamin B12',
@@ -292,11 +304,8 @@ function MedModal({ onClose, onSave }) {
   const canSave = medName.trim().length > 0 && status
 
   return (
-    <ModalShell onClose={onClose}>
-      <h2 className="text-2xl font-bold text-gray-800 mb-5">💊 Catat Obat</h2>
-
+    <ModalShell onClose={onClose} title="💊 Catat Obat">
       <p className="text-gray-500 text-lg mb-3">Obat apa?</p>
-      {/* Preset quick-tap */}
       <div className="flex flex-wrap gap-2 mb-4">
         {presets.map(p => (
           <button
@@ -371,9 +380,7 @@ function WoundModal({ onClose, onSave }) {
   const canSave = condition && dressingChanged !== null && (appearance.length > 0 || appearanceOther.trim().length > 0)
 
   return (
-    <ModalShell onClose={onClose}>
-      <h2 className="text-2xl font-bold text-gray-800 mb-5">🩹 Cek Kondisi Luka</h2>
-
+    <ModalShell onClose={onClose} title="🩹 Cek Kondisi Luka">
       <p className="text-gray-500 text-lg mb-3">Kondisi hari ini?</p>
       <OptionGroup
         options={conditions}
@@ -425,7 +432,8 @@ function WoundModal({ onClose, onSave }) {
       </div>
 
       <NotesField value={notes} onChange={setNotes} />
-      <SaveButton canSave={canSave} onSave={() => onSave({ condition, appearance, appearanceOther, dressingChanged, notes })} />    </ModalShell>
+      <SaveButton canSave={canSave} onSave={() => onSave({ condition, appearance, appearanceOther, dressingChanged, notes })} />
+    </ModalShell>
   )
 }
 
@@ -447,10 +455,10 @@ function DrinkCard({ logs, onAdd }) {
         <div>
           <p className="text-white/80 text-sm font-medium uppercase tracking-wide">Minum Hari Ini</p>
           <p className="text-4xl font-black mt-1">
-            {totalCups} <span className="text-2xl font-normal">/ {goal} gelas</span>
+            {totalCups} <span className="text-2xl font-bold">/ {goal} gelas</span>
           </p>
         </div>
-        <span className="text-5xl">💧</span>
+        <span className="text-4xl">💧</span>
       </div>
       <div className="bg-white/30 rounded-full h-3 mb-4">
         <div
@@ -523,7 +531,6 @@ function RekapScreen({ logs, onBack }) {
   const icons = { drink: '💧', meal: '🍽️', med: '💊', wound: '🩹' }
   const labels = { drink: 'Minum', meal: 'Makan', med: 'Obat', wound: 'Luka' }
 
-  // Group logs by date, sorted newest first
   const grouped = logs.reduce((acc, log) => {
     if (!acc[log.date]) acc[log.date] = []
     acc[log.date].push(log)
@@ -583,7 +590,6 @@ function RekapScreen({ logs, onBack }) {
 
     return (
       <div className="bg-white rounded-2xl shadow-sm mb-4 overflow-hidden">
-        {/* Day header — tap to expand/collapse */}
         <button
           onClick={() => setExpanded(e => !e)}
           className="w-full px-5 py-4 flex items-center justify-between"
@@ -597,7 +603,6 @@ function RekapScreen({ logs, onBack }) {
           </span>
         </button>
 
-        {/* Expanded log entries */}
         {expanded && (
           <div className="border-t border-gray-100 divide-y divide-gray-50">
             {sorted.map(log => (
@@ -626,8 +631,7 @@ function RekapScreen({ logs, onBack }) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white px-5 pt-12 pb-4 shadow-sm flex items-center gap-3">
+      <div className="bg-white px-5 pt-12 pb-4 shadow-sm flex items-center gap-3 sticky top-0 z-40">
         <button
           onClick={onBack}
           className="text-sky-500 text-lg font-semibold"
@@ -664,21 +668,25 @@ export default function App() {
   const [screen, setScreen] = useState('home')
   const [currentUser, setCurrentUser] = useState(getCurrentUser)
   const [refreshing, setRefreshing] = useState(false)
-  const [pullVisual, setPullVisual] = useState(0) // 0–1, drives the indicator height
+
+  // ── Pull-to-refresh state ─────────────────────────────────
+  // pullRaw: unbounded raw pixels of finger travel.
+  // We derive rubberY (translateY for content) and indicatorH separately,
+  // both using a 0.4 damping factor — feels like iOS native rubber-band.
+  const [pullRaw, setPullRaw] = useState(0)
+
   const touchStartYRef = useRef(0)
   const isPullingRef = useRef(false)
-  const pullDiffRef = useRef(0)
-  const handleRefreshRef = useRef(null) // always-fresh ref, avoids stale closure in touch handler
+  const pullRawRef = useRef(0)          // mirror for use inside addEventListener closures
+  const handleRefreshRef = useRef(null) // always-fresh fn ref, avoids stale closure
 
-  // Load logs from Supabase on mount
+  // ── Supabase: initial load + realtime ─────────────────────
   useEffect(() => {
-    // Initial load
     loadLogs().then(data => {
       setLogs(data)
       setLoading(false)
     })
 
-    // Realtime subscription
     const channel = supabase
       .channel('logs-changes')
       .on(
@@ -698,10 +706,7 @@ export default function App() {
       )
       .subscribe()
 
-    // Single cleanup for everything
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    return () => { supabase.removeChannel(channel) }
   }, [])
 
   async function handleRefresh() {
@@ -711,13 +716,12 @@ export default function App() {
     setRefreshing(false)
   }
 
-  // Keep the ref pointing to the latest handleRefresh so touch handler never goes stale
+  // Keep ref always pointing to the latest handleRefresh
   handleRefreshRef.current = handleRefresh
 
-  // ─── Non-passive touch handler for pull-to-refresh ──────────
-  // We MUST use addEventListener({ passive: false }) — JSX onTouchMove is
-  // always passive on mobile, so e.preventDefault() would be silently ignored,
-  // leaving the browser free to do native overscroll/bounce instead.
+  // ── Non-passive touch handler ─────────────────────────────
+  // JSX onTouchMove is always passive on mobile → e.preventDefault() ignored.
+  // We register manually with { passive: false } so we own the gesture fully.
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -726,7 +730,7 @@ export default function App() {
       if (el.scrollTop === 0) {
         touchStartYRef.current = e.touches[0].clientY
         isPullingRef.current = true
-        pullDiffRef.current = 0
+        pullRawRef.current = 0
       } else {
         isPullingRef.current = false
       }
@@ -736,27 +740,28 @@ export default function App() {
       if (!isPullingRef.current) return
       const diff = e.touches[0].clientY - touchStartYRef.current
       if (diff > 0) {
-        e.preventDefault() // only works because passive: false below
-        pullDiffRef.current = diff
-        // Clamp progress to 0–1 with a little rubber-band resistance
-        setPullVisual(Math.min(diff / 80, 1))
+        e.preventDefault() // works because passive: false ↓
+        pullRawRef.current = diff
+        setPullRaw(diff)
       } else {
+        // Scrolled up — hand gesture back to normal scroll
         isPullingRef.current = false
-        setPullVisual(0)
+        pullRawRef.current = 0
+        setPullRaw(0)
       }
     }
 
     function onTouchEnd() {
-      if (isPullingRef.current && pullDiffRef.current > 80) {
+      if (isPullingRef.current && pullRawRef.current > 80) {
         handleRefreshRef.current()
       }
       isPullingRef.current = false
-      pullDiffRef.current = 0
-      setPullVisual(0)
+      pullRawRef.current = 0
+      setPullRaw(0)
     }
 
     el.addEventListener('touchstart', onTouchStart, { passive: true })
-    el.addEventListener('touchmove', onTouchMove, { passive: false }) // <-- key
+    el.addEventListener('touchmove', onTouchMove, { passive: false }) // ← key line
     el.addEventListener('touchend', onTouchEnd, { passive: true })
 
     return () => {
@@ -764,7 +769,21 @@ export default function App() {
       el.removeEventListener('touchmove', onTouchMove)
       el.removeEventListener('touchend', onTouchEnd)
     }
-  }, []) // empty deps — all mutable state accessed via refs
+  }, [])
+
+  // ── Derived pull values ───────────────────────────────────
+  const TRIGGER_PX = 80       // raw px drag needed to fire refresh
+  const MAX_H = 56             // max indicator height in px
+
+  // Rubber-band: content + indicator move at 40% of raw drag.
+  // The further you pull, the more resistance — same feel as Instagram.
+  const dampened = Math.min(pullRaw * 0.4, MAX_H)
+  const rubberY = refreshing ? MAX_H : dampened
+  const indicatorH = refreshing ? MAX_H : dampened
+  const pullProgress = Math.min(pullRaw / TRIGGER_PX, 1) // 0→1 for icon spin preview
+
+  // Ease transitions only on release/refresh, not during active drag
+  const eased = refreshing || pullRaw === 0
 
   async function addLog(entry) {
     const user = USERS.find(u => u.id === currentUser)
@@ -850,7 +869,9 @@ export default function App() {
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 overflow-hidden">
-      <div className="bg-white px-5 pt-12 pb-4 shadow-sm sticky top-0 z-40">
+
+      {/* ── Fixed header — never moves ─────────────────────── */}
+      <div className="bg-white px-5 pt-12 pb-4 shadow-sm flex-shrink-0 z-40">
         <p className="text-gray-400 text-sm capitalize">{dateStr}</p>
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-black text-gray-800">🌸 MamiCare</h1>
@@ -886,33 +907,50 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── Pull-to-refresh indicator ─────────────────────────────
-          Lives OUTSIDE the scroll container so the header never moves.
-          Height animates 0→52px as the user pulls, stays at 52px while refreshing. */}
+      {/* ── Pull indicator — between header and content ────────
+          Height grows from 0 → MAX_H as user pulls.
+          Eases back on release. Header stays 100% fixed. */}
       <div
-        className="overflow-hidden transition-all duration-150 flex-shrink-0"
-        style={{ height: refreshing ? 52 : pullVisual * 52 }}
+        className="flex-shrink-0 overflow-hidden bg-gray-50"
+        style={{
+          height: indicatorH,
+          transition: eased ? 'height 0.25s ease' : 'none',
+        }}
       >
-        <div className="flex justify-center items-center h-[52px]">
+        <div className="flex justify-center items-center" style={{ height: MAX_H }}>
           <div className="flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-md">
             <RefreshCw
               size={16}
               className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-400'}
-              style={{ transform: `rotate(${pullVisual * 180}deg)`, transition: 'transform 0.1s' }}
+              style={refreshing ? undefined : {
+                transform: `rotate(${pullProgress * 180}deg)`,
+                transition: 'transform 0.08s',
+              }}
             />
             <span className="text-sm text-gray-500">
-              {refreshing ? 'Memperbarui...' : pullVisual >= 1 ? '🙌 Lepaskan!' : 'Tarik untuk refresh'}
+              {refreshing
+                ? 'Memperbarui...'
+                : pullProgress >= 1
+                  ? '🙌 Lepaskan!'
+                  : 'Tarik untuk refresh'}
             </span>
           </div>
         </div>
       </div>
 
+      {/* ── Scrollable content — rubber-bands during pull ──────
+          translateY at 40% of raw drag = increasing resistance feel.
+          transition: 'none' during drag for instant feedback,
+          'ease' on release so it snaps back smoothly. */}
       <div
         className="flex-1 overflow-y-scroll px-4 pt-5 pb-32"
         ref={scrollRef}
-        style={{ overscrollBehavior: 'none' }}
+        style={{
+          overscrollBehavior: 'none',
+          transform: `translateY(${rubberY}px)`,
+          transition: eased ? 'transform 0.25s ease' : 'none',
+        }}
       >
-        {/* No inline touch handlers here — handled by useEffect with passive:false */}
         <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
         <div className="grid grid-cols-3 gap-3 mb-6">
           {[
