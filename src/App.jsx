@@ -53,8 +53,8 @@ function OptionGroup({ options, selected, onSelect, cols = 2 }) {
           key={opt.id}
           onClick={() => onSelect(opt.id)}
           className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${selected === opt.id
-              ? 'bg-sky-500 text-white border-sky-500'
-              : 'bg-white text-gray-700 border-gray-200'
+            ? 'bg-sky-500 text-white border-sky-500'
+            : 'bg-white text-gray-700 border-gray-200'
             }`}
         >
           {opt.label}
@@ -70,8 +70,8 @@ function SaveButton({ canSave, onSave }) {
     <button
       onClick={() => canSave && onSave()}
       className={`w-full py-5 text-xl font-bold rounded-2xl transition-all ${canSave
-          ? 'bg-sky-500 text-white active:bg-sky-600'
-          : 'bg-gray-100 text-gray-400'
+        ? 'bg-sky-500 text-white active:bg-sky-600'
+        : 'bg-gray-100 text-gray-400'
         }`}
     >
       ✅ SIMPAN
@@ -221,8 +221,8 @@ function MedModal({ onClose, onSave }) {
             key={p}
             onClick={() => setMedName(p)}
             className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${medName === p
-                ? 'bg-purple-500 text-white border-purple-500'
-                : 'bg-white text-gray-600 border-gray-200'
+              ? 'bg-purple-500 text-white border-purple-500'
+              : 'bg-white text-gray-600 border-gray-200'
               }`}
           >
             {p}
@@ -243,6 +243,89 @@ function MedModal({ onClose, onSave }) {
 
       <NotesField value={notes} onChange={setNotes} />
       <SaveButton canSave={canSave} onSave={() => onSave({ medName, status, notes })} />
+    </ModalShell>
+  )
+}
+
+// ─── Wound Modal ─────────────────────────────────────────────
+function WoundModal({ onClose, onSave }) {
+  const [condition, setCondition] = useState(null)
+  const [appearance, setAppearance] = useState([])
+  const [dressingChanged, setDressingChanged] = useState(null)
+  const [notes, setNotes] = useState('')
+
+  const conditions = [
+    { id: 'better', label: '😊 Lebih Baik' },
+    { id: 'same', label: '😐 Sama Saja' },
+    { id: 'worse', label: '😟 Memburuk' },
+  ]
+
+  const appearanceOptions = [
+    { id: 'dry', label: '🏜️ Kering' },
+    { id: 'wet', label: '💦 Basah' },
+    { id: 'swollen', label: '🫧 Bengkak' },
+    { id: 'redness', label: '🔴 Kemerahan' },
+    { id: 'discharge', label: '🟡 Ada Cairan' },
+    { id: 'smell', label: '👃 Berbau' },
+  ]
+
+  function toggleAppearance(id) {
+    setAppearance(prev =>
+      prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id]
+    )
+  }
+
+  const canSave = condition && dressingChanged !== null
+
+  return (
+    <ModalShell onClose={onClose}>
+      <h2 className="text-2xl font-bold text-gray-800 mb-5">🩹 Cek Kondisi Luka</h2>
+
+      <p className="text-gray-500 text-lg mb-3">Kondisi hari ini?</p>
+      <OptionGroup
+        options={conditions}
+        selected={condition}
+        onSelect={setCondition}
+        cols={3}
+      />
+
+      <p className="text-gray-500 text-lg mb-3">Tampilan luka? <span className="text-sm">(boleh pilih lebih dari satu)</span></p>
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        {appearanceOptions.map(opt => (
+          <button
+            key={opt.id}
+            onClick={() => toggleAppearance(opt.id)}
+            className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${appearance.includes(opt.id)
+              ? 'bg-rose-500 text-white border-rose-500'
+              : 'bg-white text-gray-700 border-gray-200'
+              }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      <p className="text-gray-500 text-lg mb-3">Ganti perban hari ini?</p>
+      <div className="grid grid-cols-2 gap-3 mb-6">
+        {[
+          { id: true, label: '✅ Sudah Ganti' },
+          { id: false, label: '⏭️ Belum Ganti' },
+        ].map(opt => (
+          <button
+            key={String(opt.id)}
+            onClick={() => setDressingChanged(opt.id)}
+            className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${dressingChanged === opt.id
+              ? 'bg-sky-500 text-white border-sky-500'
+              : 'bg-white text-gray-700 border-gray-200'
+              }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      <NotesField value={notes} onChange={setNotes} />
+      <SaveButton canSave={canSave} onSave={() => onSave({ condition, appearance, dressingChanged, notes })} />
     </ModalShell>
   )
 }
@@ -384,6 +467,25 @@ export default function App() {
     setModal(null)
   }
 
+  function handleWoundSave({ condition, appearance, dressingChanged, notes }) {
+    const conditionLabels = { better: 'Lebih Baik 😊', same: 'Sama Saja 😐', worse: 'Memburuk 😟' }
+    const appearanceLabels = {
+      dry: 'Kering', wet: 'Basah', swollen: 'Bengkak',
+      redness: 'Kemerahan', discharge: 'Ada Cairan', smell: 'Berbau'
+    }
+    const appearanceText = appearance.length > 0
+      ? appearance.map(a => appearanceLabels[a]).join(', ')
+      : 'Tidak ada keluhan khusus'
+
+    addLog({
+      type: 'wound',
+      notes,
+      dressingChanged,
+      summary: `${conditionLabels[condition]} · ${appearanceText} · Perban: ${dressingChanged ? 'Diganti' : 'Belum diganti'}`,
+    })
+    setModal(null)
+  }
+
   const dateStr = new Date().toLocaleDateString('id-ID', {
     weekday: 'long', day: 'numeric', month: 'long'
   })
@@ -405,7 +507,7 @@ export default function App() {
           {[
             { id: 'meal', emoji: '🍽️', label: 'Makan', color: 'bg-orange-50 border-orange-300 text-orange-700' },
             { id: 'med', emoji: '💊', label: 'Obat', color: 'bg-purple-50 border-purple-300 text-purple-700' },
-            { id: 'wound', emoji: '🩹', label: 'Luka', color: 'bg-rose-50 border-rose-200 text-rose-400', disabled: true },
+            { id: 'wound', emoji: '🩹', label: 'Luka', color: 'bg-rose-50 border-rose-300 text-rose-600' },
           ].map(btn => (
             <button
               key={btn.id}
@@ -432,6 +534,7 @@ export default function App() {
       {modal === 'drink' && <DrinkModal onClose={() => setModal(null)} onSave={handleDrinkSave} />}
       {modal === 'meal' && <MealModal onClose={() => setModal(null)} onSave={handleMealSave} />}
       {modal === 'med' && <MedModal onClose={() => setModal(null)} onSave={handleMedSave} />}
+      {modal === 'wound' && <WoundModal onClose={() => setModal(null)} onSave={handleWoundSave} />}
 
       {/* Delete confirmation */}
       {deleteTarget && (
