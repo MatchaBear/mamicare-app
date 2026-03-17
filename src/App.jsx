@@ -1286,9 +1286,10 @@ export default function App() {
 
   /* ---------------- Derived pull values ---------------- */
   const pullProgress = Math.min(pullRaw / TRIGGER_PX, 1)
-  const overpullY = Math.min(Math.max(pullRaw - TRIGGER_PX, 0) * 0.18, MAX_OVERPULL_Y)
-  const rubberY = refreshing ? MAX_PULL_Y : pullProgress * MAX_PULL_Y + overpullY
-  const indicatorOffset = refreshing ? 0 : MAX_PULL_Y * (pullProgress - 1)
+  const revealY = refreshing ? MAX_PULL_Y : pullProgress * MAX_PULL_Y
+  const overpullY = refreshing
+    ? 0
+    : Math.min(Math.max(pullRaw - TRIGGER_PX, 0) * 0.18, MAX_OVERPULL_Y)
   const showPullIndicator = refreshing || pullRaw > 0
   const eased = refreshing || pullRaw === 0
 
@@ -1521,19 +1522,19 @@ export default function App() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 relative overflow-hidden bg-gray-50">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-gray-50">
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center overflow-hidden"
-          style={{ height: MAX_PULL_Y }}
+          className="pointer-events-none flex justify-center overflow-hidden"
+          style={{
+            height: revealY,
+            transition: eased ? 'height 0.25s ease' : 'none',
+          }}
         >
           <div
             className="mt-2 flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-md"
             style={{
               opacity: showPullIndicator ? 1 : 0,
-              transform: `translateY(${indicatorOffset}px)`,
-              transition: eased
-                ? 'transform 0.25s ease, opacity 0.25s ease'
-                : 'none',
+              transition: eased ? 'opacity 0.25s ease' : 'none',
             }}
           >
             <RefreshCw
@@ -1559,9 +1560,9 @@ export default function App() {
           </div>
         </div>
 
-        {/* Scroll viewport stays fixed; inner content rubber-bands below the header */}
+        {/* Pill reveal owns the first stage; only extra drag beyond the threshold rubber-bands the content */}
         <div
-          className="flex-1 min-h-0 h-full overflow-y-auto px-4"
+          className="flex-1 min-h-0 overflow-y-auto px-4"
           ref={scrollRef}
           style={{
             overscrollBehaviorY: 'contain',
@@ -1572,7 +1573,7 @@ export default function App() {
           <div
             className="pt-5"
             style={{
-              transform: `translateY(${rubberY}px)`,
+              transform: `translateY(${overpullY}px)`,
               transition: eased ? 'transform 0.25s ease' : 'none',
             }}
           >
