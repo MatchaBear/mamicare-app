@@ -713,7 +713,7 @@ export default function App() {
     setModal(null)
   }
 
-  function handleWoundSave({ condition, appearance, dressingChanged, notes }) {
+  function handleWoundSave({ condition, appearance, appearanceOther, dressingChanged, notes }) {
     const conditionLabels = { better: 'Lebih Baik 😊', same: 'Sama Saja 😐', worse: 'Memburuk 😟' }
     const appearanceLabels = {
       dry: 'Kering', wet: 'Basah', swollen: 'Bengkak',

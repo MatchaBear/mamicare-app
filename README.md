@@ -13,7 +13,7 @@ In the land of Tangsel, where diabetes is the Shadow and blood sugar is Mount Do
 
 **The Fellowship:**
 - 🧙 **Berry** — the reluctant developer, armed with a MacBook Air and too many terminal tabs
-- 👩 **Wife** — co-architect of the plan, keeper of the vision
+- 👩 **Meme** — co-architect of the plan, keeper of the vision
 - 👵 **Nyok** — the patient, the reason, the whole point
 - 🧑‍🍳 **Bu Susi** — the caregiver, the real MVP in the Shire
 
@@ -27,28 +27,37 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 |---|---|---|
 | ⚡ Frontend | React + Vite 6 | The mithril of frameworks |
 | 🎨 Styling | Tailwind CSS (CDN) | Gandalf-approved utility classes |
-| 💾 Storage | localStorage | Phase 1 — the Bag End of databases |
-| ☁️ Hosting | Vercel | Deployed to the Cloud of Valinor |
+| ☁️ Database | Supabase (PostgreSQL) | The One Ring to sync them all |
+| 🌐 Hosting | Vercel | Deployed to the Cloud of Valinor |
 | 📱 PWA | vite-plugin-pwa | Installable on any Shire phone |
 
 ---
 
 ## 🗺️ The Quest Log (Changelog)
 
-### 🏆 v0.3.0 — *"The Two Timelines"*
+### 🏆 v1.0.0 — *"The One Ring"*
 `2026-03-18`
+- ✅ Supabase cloud sync — semua HP baca/tulis ke DB yang sama
+- ✅ Multi-device confirmed: iPhone + MacBook + any device
+- ✅ User identity — siapa yang log entry (Nyok/Bu Susi/Berry/Meme)
+- ✅ Device info — device apa yang dipakai (📱 iPhone / 💻 Mac)
+- ✅ Wound appearance wajib diisi (button atau free text)
+- ✅ Obat Lainnya button dengan conditional input field
+- ✅ 26/26 unit test cases passed (localhost)
+- ✅ Production deployed & stable di mamicare-app.vercel.app
+
+### 🏆 v0.3.0 — *"The Two Timelines"*
+`2026-03-17`
 - ✅ Rekap/History screen — lihat semua catatan per hari
 - ✅ Hari ini auto-expand, hari sebelumnya collapsed
-- ✅ Summary badges per hari (💧 minum, 🍽️ makan, dll)
+- ✅ Summary badges per hari
 - ✅ PWA update prompt — notif otomatis kalau ada versi baru
-- ✅ Tombol Rekap di header home screen
 
 ### 🏆 v0.2.1 — *"The Wound That Was"*
-`2026-03-18`
+`2026-03-17`
 - ✅ Wound Monitor — kondisi luka harian
 - ✅ Multi-select tampilan luka (kering, basah, bengkak, dll)
-- ✅ Status ganti perban
-- ✅ Notes field + masuk timeline
+- ✅ Status ganti perban + notes field
 
 ### 🏆 v0.2.0 — *"The Two Loggers"*
 `2026-03-17`
@@ -56,31 +65,29 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 - ✅ Medication Logger — preset obat diabetes + custom input
 - ✅ Notes/remarks field di setiap entry
 - ✅ Delete log dengan konfirmasi (anti misclick)
-- ✅ Shared modal architecture (reusable components)
 
 ### 🏆 v0.1.0 — *"There and Back Again"*
 `2026-03-17`
 - ✅ Project scaffolded (Vite 6 + React + Tailwind)
 - ✅ Drink Logger — log jenis & jumlah minum
 - ✅ Daily drink counter with progress bar
-- ✅ Today's timeline (Catatan Hari Ini)
 - ✅ Data persisted via localStorage
-- ✅ Deployed live → [mamicare-app.vercel.app](https://mamicare-app.vercel.app)
-- ✅ Installable as PWA on Android & iOS
+- ✅ Deployed live → mamicare-app.vercel.app
 
 ---
 
 ## 🔭 The Road Goes Ever On (Roadmap)
 
-### 🧭 v0.4.0 — *"The King Returns"* *(next)*
-- [ ] ☁️ Supabase sync — data di cloud, Berry bisa monitor dari Singapore
-- [ ] 👥 Multi-user — Berry, Wife, Bu Susi, Nyok punya akun masing-masing
-- [ ] 🔔 Push notification reminders
+### 🧭 v1.1.0 — *"The Shire Calls"* *(next)*
+- [ ] 🔔 Push notification reminders — waktunya obat, waktunya minum
 
-### 🏰 v0.5.0 — *"The Scouring of the Shire"*
+### 🏰 v1.2.0 — *"The Palantír"*
+- [ ] 📊 Dashboard Berry — grafik mingguan minum & makan
+- [ ] 🚨 Alert kalau minum kurang dari target
+
+### 👑 v1.3.0 — *"The Scouring of the Shire"*
 - [ ] 📄 Export PDF untuk dokter
-- [ ] 📊 Weekly trend chart — grafik minum & makan
-- [ ] 📸 Foto luka
+- [ ] 📸 Foto luka — upload & lihat progress
 
 ---
 
