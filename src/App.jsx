@@ -101,6 +101,7 @@ const APP_VIEWPORT_HEIGHT = '100dvh'
 const TRIGGER_PX = 80
 const MAX_PULL_Y = 56
 const MIN_REFRESH_MS = 420
+const MAX_OVERPULL_Y = 12
 
 /* ============================================================
  * User Identity
@@ -1279,9 +1280,9 @@ export default function App() {
   }, [])
 
   /* ---------------- Derived pull values ---------------- */
-  const dampened = Math.min(pullRaw * 0.42, MAX_PULL_Y)
-  const rubberY = refreshing ? MAX_PULL_Y : dampened
   const pullProgress = Math.min(pullRaw / TRIGGER_PX, 1)
+  const overpullY = Math.min(Math.max(pullRaw - TRIGGER_PX, 0) * 0.18, MAX_OVERPULL_Y)
+  const rubberY = refreshing ? MAX_PULL_Y : pullProgress * MAX_PULL_Y + overpullY
   const indicatorOffset = refreshing ? 0 : MAX_PULL_Y * (pullProgress - 1)
   const showPullIndicator = refreshing || pullRaw > 0
   const eased = refreshing || pullRaw === 0
