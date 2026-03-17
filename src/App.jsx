@@ -682,7 +682,6 @@ export default function App() {
         (payload) => {
           if (payload.eventType === 'INSERT') {
             setLogs(prev => {
-              // Avoid duplicate if it's our own entry
               if (prev.find(l => l.id === payload.new.id)) return prev
               return [payload.new, ...prev]
             })
@@ -702,13 +701,11 @@ export default function App() {
     }
     document.addEventListener('touchmove', preventPullToRefresh, { passive: false })
 
+    // Single cleanup for everything
     return () => {
       supabase.removeChannel(channel)
       document.removeEventListener('touchmove', preventPullToRefresh)
     }
-
-    // Cleanup on unmount
-    return () => { supabase.removeChannel(channel) }
   }, [])
 
   async function handleRefresh() {
