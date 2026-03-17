@@ -789,7 +789,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="bg-white px-5 pt-12 pb-4 shadow-sm">
+      <div className="bg-white px-5 pt-12 pb-4 shadow-sm sticky top-0 z-40">
         <p className="text-gray-400 text-sm capitalize">{dateStr}</p>
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-black text-gray-800">🌸 MamiCare</h1>
