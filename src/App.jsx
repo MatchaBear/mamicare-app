@@ -100,6 +100,7 @@ const SAFE_BOTTOM_PAD = 'calc(env(safe-area-inset-bottom, 0px) + 24px)'
 const APP_VIEWPORT_HEIGHT = '100dvh'
 const TRIGGER_PX = 80
 const MAX_PULL_Y = 56
+const MIN_REFRESH_MS = 420
 
 /* ============================================================
  * User Identity
@@ -1196,12 +1197,19 @@ export default function App() {
   async function handleRefresh() {
     if (refreshingRef.current) return
 
+    const startedAt = Date.now()
     setRefreshing(true)
 
     try {
       const data = await loadLogs()
       setLogs(data)
     } finally {
+      const elapsed = Date.now() - startedAt
+
+      if (elapsed < MIN_REFRESH_MS) {
+        await new Promise(resolve => setTimeout(resolve, MIN_REFRESH_MS - elapsed))
+      }
+
       setRefreshing(false)
     }
   }
@@ -1274,7 +1282,7 @@ export default function App() {
   const dampened = Math.min(pullRaw * 0.42, MAX_PULL_Y)
   const rubberY = refreshing ? MAX_PULL_Y : dampened
   const pullProgress = Math.min(pullRaw / TRIGGER_PX, 1)
-  const indicatorOffset = refreshing ? 0 : dampened - MAX_PULL_Y
+  const indicatorOffset = refreshing ? 0 : MAX_PULL_Y * (pullProgress - 1)
   const showPullIndicator = refreshing || pullRaw > 0
   const eased = refreshing || pullRaw === 0
 
