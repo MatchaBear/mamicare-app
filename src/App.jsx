@@ -664,10 +664,35 @@ export default function App() {
 
   // Load logs from Supabase on mount
   useEffect(() => {
+    // Initial load
     loadLogs().then(data => {
       setLogs(data)
       setLoading(false)
     })
+
+    // Realtime subscription
+    const channel = supabase
+      .channel('logs-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'logs' },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            setLogs(prev => {
+              // Avoid duplicate if it's our own entry
+              if (prev.find(l => l.id === payload.new.id)) return prev
+              return [payload.new, ...prev]
+            })
+          }
+          if (payload.eventType === 'DELETE') {
+            setLogs(prev => prev.filter(l => l.id !== payload.old.id))
+          }
+        }
+      )
+      .subscribe()
+
+    // Cleanup on unmount
+    return () => { supabase.removeChannel(channel) }
   }, [])
 
   async function addLog(entry) {
