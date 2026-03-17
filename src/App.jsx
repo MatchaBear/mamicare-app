@@ -694,6 +694,19 @@ export default function App() {
       )
       .subscribe()
 
+    // Disable iOS Safari pull-to-refresh
+    const preventPullToRefresh = (e) => {
+      if (e.touches[0].clientY > 0 && window.scrollY === 0) {
+        e.preventDefault()
+      }
+    }
+    document.addEventListener('touchmove', preventPullToRefresh, { passive: false })
+
+    return () => {
+      supabase.removeChannel(channel)
+      document.removeEventListener('touchmove', preventPullToRefresh)
+    }
+
     // Cleanup on unmount
     return () => { supabase.removeChannel(channel) }
   }, [])
