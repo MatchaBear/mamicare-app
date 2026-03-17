@@ -159,6 +159,15 @@ function getIsMobileLayout() {
   return window.matchMedia('(max-width: 767px)').matches
 }
 
+function getIsStandaloneMode() {
+  if (typeof window === 'undefined') return false
+
+  return (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true
+  )
+}
+
 /* ============================================================
  * Data layer (Supabase)
  * ============================================================
@@ -1149,6 +1158,7 @@ export default function App() {
   const [screen, setScreen] = useState('home')
   const [currentUser, setCurrentUser] = useState(getCurrentUser)
   const [isMobileLayout, setIsMobileLayout] = useState(getIsMobileLayout)
+  const [isStandaloneMode, setIsStandaloneMode] = useState(getIsStandaloneMode)
 
   const [refreshing, setRefreshing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1210,19 +1220,87 @@ export default function App() {
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
 
-    const media = window.matchMedia('(max-width: 767px)')
-    const syncLayout = event => setIsMobileLayout(event.matches)
-
-    setIsMobileLayout(media.matches)
-
-    if (typeof media.addEventListener === 'function') {
-      media.addEventListener('change', syncLayout)
-      return () => media.removeEventListener('change', syncLayout)
+    const layoutMedia = window.matchMedia('(max-width: 767px)')
+    const standaloneMedia = window.matchMedia('(display-mode: standalone)')
+    const syncLayout = () => {
+      setIsMobileLayout(layoutMedia.matches)
+      setIsStandaloneMode(
+        standaloneMedia.matches || window.navigator.standalone === true
+      )
     }
 
-    media.addListener(syncLayout)
-    return () => media.removeListener(syncLayout)
+    syncLayout()
+
+    if (
+      typeof layoutMedia.addEventListener === 'function' &&
+      typeof standaloneMedia.addEventListener === 'function'
+    ) {
+      layoutMedia.addEventListener('change', syncLayout)
+      standaloneMedia.addEventListener('change', syncLayout)
+
+      return () => {
+        layoutMedia.removeEventListener('change', syncLayout)
+        standaloneMedia.removeEventListener('change', syncLayout)
+      }
+    }
+
+    layoutMedia.addListener(syncLayout)
+    standaloneMedia.addListener(syncLayout)
+
+    return () => {
+      layoutMedia.removeListener(syncLayout)
+      standaloneMedia.removeListener(syncLayout)
+    }
   }, [])
+
+  const useNativeMobileRefresh = isMobileLayout && !isStandaloneMode
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined
+
+    const html = document.documentElement
+    const body = document.body
+    const root = document.getElementById('root')
+
+    const previous = {
+      htmlOverscrollY: html.style.overscrollBehaviorY,
+      bodyOverflow: body.style.overflow,
+      bodyOverflowY: body.style.overflowY,
+      bodyOverflowX: body.style.overflowX,
+      bodyOverscrollY: body.style.overscrollBehaviorY,
+      rootOverflow: root?.style.overflow || '',
+      rootHeight: root?.style.height || '',
+      rootMinHeight: root?.style.minHeight || '',
+    }
+
+    if (useNativeMobileRefresh) {
+      html.style.overscrollBehaviorY = 'auto'
+      body.style.overflow = 'auto'
+      body.style.overflowY = 'auto'
+      body.style.overflowX = 'hidden'
+      body.style.overscrollBehaviorY = 'auto'
+
+      if (root) {
+        root.style.overflow = 'visible'
+        root.style.height = 'auto'
+        root.style.minHeight = '100%'
+      }
+    }
+
+    return () => {
+      html.style.overscrollBehaviorY = previous.htmlOverscrollY
+      body.style.overflow = previous.bodyOverflow
+      body.style.overflowY = previous.bodyOverflowY
+      body.style.overflowX = previous.bodyOverflowX
+      body.style.overscrollBehaviorY = previous.bodyOverscrollY
+
+      if (root) {
+        root.style.overflow = previous.rootOverflow
+        root.style.height = previous.rootHeight
+        root.style.minHeight = previous.rootMinHeight
+      }
+    }
+  }, [useNativeMobileRefresh])
 
   async function handleRefresh() {
     if (refreshingRef.current) return
@@ -1248,6 +1326,11 @@ export default function App() {
 
   /* ---------------- Non-passive touch handlers ---------------- */
   useEffect(() => {
+    if (useNativeMobileRefresh) {
+      setPullRaw(0)
+      return undefined
+    }
+
     const el = scrollRef.current
     if (!el) return
 
@@ -1306,16 +1389,22 @@ export default function App() {
       el.removeEventListener('touchend', onTouchEnd)
       el.removeEventListener('touchcancel', onTouchEnd)
     }
-  }, [])
+  }, [useNativeMobileRefresh])
 
   /* ---------------- Derived pull values ---------------- */
-  const pullProgress = Math.min(pullRaw / TRIGGER_PX, 1)
-  const indicatorMaxPullY = isMobileLayout ? MOBILE_PULL_Y : MAX_PULL_Y
+  const pullProgress = useNativeMobileRefresh ? 0 : Math.min(pullRaw / TRIGGER_PX, 1)
+  const indicatorMaxPullY = useNativeMobileRefresh
+    ? 0
+    : isMobileLayout
+      ? MOBILE_PULL_Y
+      : MAX_PULL_Y
   const revealY = refreshing ? indicatorMaxPullY : pullProgress * indicatorMaxPullY
-  const overpullY = refreshing
+  const overpullY = useNativeMobileRefresh
+    ? 0
+    : refreshing
     ? 0
     : Math.min(Math.max(pullRaw - TRIGGER_PX, 0) * 0.18, MAX_OVERPULL_Y)
-  const showPullIndicator = refreshing || pullRaw > 0
+  const showPullIndicator = !useNativeMobileRefresh && (refreshing || pullRaw > 0)
   const eased = refreshing || pullRaw === 0
   const mobileIndicatorOffsetY = refreshing ? 0 : (1 - pullProgress) * -14
   const mobileIndicatorScale = refreshing ? 1 : 0.94 + pullProgress * 0.06
@@ -1495,12 +1584,16 @@ export default function App() {
   /* ---------------- Home screen ---------------- */
   return (
     <div
-      className="h-screen flex flex-col bg-gray-50 overflow-hidden"
-      style={{ height: APP_VIEWPORT_HEIGHT }}
+      className={`${useNativeMobileRefresh ? 'min-h-screen' : 'h-screen overflow-hidden'} flex flex-col bg-gray-50`}
+      style={
+        useNativeMobileRefresh
+          ? { minHeight: APP_VIEWPORT_HEIGHT }
+          : { height: APP_VIEWPORT_HEIGHT }
+      }
     >
       {/* Fixed header: never moves during pull gesture */}
       <div
-        className="bg-white px-5 pb-4 shadow-sm flex-shrink-0 z-40"
+        className={`bg-white px-5 pb-4 shadow-sm z-40 ${useNativeMobileRefresh ? 'sticky top-0' : 'flex-shrink-0'}`}
         style={{ paddingTop: SAFE_TOP_PAD }}
       >
         <p className="text-gray-400 text-sm capitalize">{dateStr}</p>
@@ -1542,11 +1635,11 @@ export default function App() {
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="flex md:hidden bg-gray-100 text-gray-600 px-3 py-2 rounded-full active:bg-gray-200 disabled:opacity-60"
+              className="flex md:hidden h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-600 active:bg-gray-200 disabled:opacity-60"
               aria-label="Refresh"
             >
               <RefreshCw
-                size={18}
+                size={20}
                 className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-500'}
               />
             </button>
@@ -1561,93 +1654,105 @@ export default function App() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-gray-50">
+      <div
+        className={`${useNativeMobileRefresh ? 'bg-gray-50' : 'flex-1 min-h-0 flex flex-col overflow-hidden bg-gray-50'}`}
+      >
+        {!useNativeMobileRefresh && (
+          <>
+            <div
+              className="pointer-events-none hidden md:flex justify-center overflow-hidden"
+              style={{
+                height: revealY,
+                transition: eased ? 'height 0.25s ease' : 'none',
+              }}
+            >
+              <div
+                className="mt-2 flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-md"
+                style={{
+                  opacity: showPullIndicator ? 1 : 0,
+                  transition: eased ? 'opacity 0.25s ease' : 'none',
+                }}
+              >
+                <RefreshCw
+                  size={16}
+                  className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-400'}
+                  style={
+                    refreshing
+                      ? undefined
+                      : {
+                          transform: `rotate(${pullProgress * 180}deg)`,
+                          transition: 'transform 0.08s',
+                        }
+                  }
+                />
+
+                <span className="text-sm text-gray-500">
+                  {refreshing
+                    ? 'Memperbarui...'
+                    : pullProgress >= 1
+                      ? '🙌 Lepaskan!'
+                      : 'Tarik untuk refresh'}
+                </span>
+              </div>
+            </div>
+
+            <div
+              className="pointer-events-none flex md:hidden justify-center overflow-hidden"
+              style={{
+                height: revealY,
+                transition: eased ? 'height 0.25s ease' : 'none',
+              }}
+            >
+              <div
+                className="mt-2 flex items-center gap-3 rounded-full border border-sky-200 bg-white/95 px-5 py-3 shadow-[0_12px_30px_rgba(14,165,233,0.18)] backdrop-blur-sm"
+                style={{
+                  opacity: showPullIndicator ? 1 : 0,
+                  transform: `translateY(${mobileIndicatorOffsetY}px) scale(${mobileIndicatorScale})`,
+                  transition: eased
+                    ? 'transform 0.25s ease, opacity 0.25s ease'
+                    : 'none',
+                }}
+              >
+                <RefreshCw
+                  size={18}
+                  className={refreshing ? 'animate-spin text-sky-500' : 'text-sky-500'}
+                  style={
+                    refreshing
+                      ? undefined
+                      : {
+                          transform: `rotate(${pullProgress * 180}deg)`,
+                          transition: 'transform 0.08s',
+                        }
+                  }
+                />
+
+                <span className="text-[15px] font-semibold tracking-tight text-slate-700">
+                  {refreshing
+                    ? 'Memperbarui...'
+                    : pullProgress >= 1
+                      ? 'Lepaskan untuk refresh'
+                      : 'Tarik untuk refresh'}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Mobile browsers use native page pull-to-refresh; desktop/in-app keep the custom lane */}
         <div
-          className="pointer-events-none hidden md:flex justify-center overflow-hidden"
-          style={{
-            height: revealY,
-            transition: eased ? 'height 0.25s ease' : 'none',
-          }}
-        >
-          <div
-            className="mt-2 flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-md"
-            style={{
-              opacity: showPullIndicator ? 1 : 0,
-              transition: eased ? 'opacity 0.25s ease' : 'none',
-            }}
-          >
-            <RefreshCw
-              size={16}
-              className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-400'}
-              style={
-                refreshing
-                  ? undefined
-                  : {
-                      transform: `rotate(${pullProgress * 180}deg)`,
-                      transition: 'transform 0.08s',
-                    }
-              }
-            />
-
-            <span className="text-sm text-gray-500">
-              {refreshing
-                ? 'Memperbarui...'
-                : pullProgress >= 1
-                  ? '🙌 Lepaskan!'
-                  : 'Tarik untuk refresh'}
-            </span>
-          </div>
-        </div>
-
-        <div
-          className="pointer-events-none flex md:hidden justify-center overflow-hidden"
-          style={{
-            height: revealY,
-            transition: eased ? 'height 0.25s ease' : 'none',
-          }}
-        >
-          <div
-            className="mt-2 flex items-center gap-3 rounded-full border border-sky-200 bg-white/95 px-5 py-3 shadow-[0_12px_30px_rgba(14,165,233,0.18)] backdrop-blur-sm"
-            style={{
-              opacity: showPullIndicator ? 1 : 0,
-              transform: `translateY(${mobileIndicatorOffsetY}px) scale(${mobileIndicatorScale})`,
-              transition: eased
-                ? 'transform 0.25s ease, opacity 0.25s ease'
-                : 'none',
-            }}
-          >
-            <RefreshCw
-              size={18}
-              className={refreshing ? 'animate-spin text-sky-500' : 'text-sky-500'}
-              style={
-                refreshing
-                  ? undefined
-                  : {
-                      transform: `rotate(${pullProgress * 180}deg)`,
-                      transition: 'transform 0.08s',
-                    }
-              }
-            />
-
-            <span className="text-[15px] font-semibold tracking-tight text-slate-700">
-              {refreshing
-                ? 'Memperbarui...'
-                : pullProgress >= 1
-                  ? 'Lepaskan untuk refresh'
-                  : 'Tarik untuk refresh'}
-            </span>
-          </div>
-        </div>
-
-        {/* Desktop keeps the under-header slot; mobile uses a louder pill in the same reveal lane */}
-        <div
-          className="flex-1 min-h-0 overflow-y-auto px-4"
+          className={`${useNativeMobileRefresh ? 'px-4' : 'flex-1 min-h-0 overflow-y-auto px-4'}`}
           ref={scrollRef}
-          style={{
-            overscrollBehaviorY: 'contain',
-            WebkitOverflowScrolling: 'touch',
-            paddingBottom: `calc(${SAFE_BOTTOM_PAD} + 72px)`,
-          }}
+          style={
+            useNativeMobileRefresh
+              ? {
+                  paddingBottom: `calc(${SAFE_BOTTOM_PAD} + 72px)`,
+                }
+              : {
+                  overscrollBehaviorY: 'contain',
+                  WebkitOverflowScrolling: 'touch',
+                  paddingBottom: `calc(${SAFE_BOTTOM_PAD} + 72px)`,
+                }
+          }
         >
           <div
             className="pt-5"
