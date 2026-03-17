@@ -693,17 +693,24 @@ export default function App() {
       )
       .subscribe()
 
-    // Disable iOS Safari pull-to-refresh
+    // Disable iOS Safari pull-to-refresh only, allow normal scroll
+    let startY = 0
+    const handleTouchStart = (e) => { startY = e.touches[0].clientY }
     const preventPullToRefresh = (e) => {
-      if (e.touches[0].clientY > 0 && window.scrollY === 0) {
+      const scrollEl = e.target.closest('.overflow-y-auto')
+      if (!scrollEl) return
+      const movingDown = e.touches[0].clientY > startY
+      if (movingDown && scrollEl.scrollTop === 0) {
         e.preventDefault()
       }
     }
+    document.addEventListener('touchstart', handleTouchStart, { passive: true })
     document.addEventListener('touchmove', preventPullToRefresh, { passive: false })
 
     // Single cleanup for everything
     return () => {
       supabase.removeChannel(channel)
+      document.removeEventListener('touchstart', handleTouchStart)
       document.removeEventListener('touchmove', preventPullToRefresh)
     }
   }, [])
