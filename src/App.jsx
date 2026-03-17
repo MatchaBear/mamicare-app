@@ -153,6 +153,11 @@ function getDeviceInfo() {
   return '🌐 Browser'
 }
 
+function getIsMobileLayout() {
+  if (typeof window === 'undefined') return true
+  return window.matchMedia('(max-width: 767px)').matches
+}
+
 /* ============================================================
  * Data layer (Supabase)
  * ============================================================
@@ -1142,6 +1147,7 @@ export default function App() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [screen, setScreen] = useState('home')
   const [currentUser, setCurrentUser] = useState(getCurrentUser)
+  const [isMobileLayout, setIsMobileLayout] = useState(getIsMobileLayout)
 
   const [refreshing, setRefreshing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -1198,6 +1204,23 @@ export default function App() {
       isMounted = false
       supabase.removeChannel(channel)
     }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+
+    const media = window.matchMedia('(max-width: 767px)')
+    const syncLayout = event => setIsMobileLayout(event.matches)
+
+    setIsMobileLayout(media.matches)
+
+    if (typeof media.addEventListener === 'function') {
+      media.addEventListener('change', syncLayout)
+      return () => media.removeEventListener('change', syncLayout)
+    }
+
+    media.addListener(syncLayout)
+    return () => media.removeListener(syncLayout)
   }, [])
 
   async function handleRefresh() {
@@ -1290,8 +1313,21 @@ export default function App() {
   const overpullY = refreshing
     ? 0
     : Math.min(Math.max(pullRaw - TRIGGER_PX, 0) * 0.18, MAX_OVERPULL_Y)
+  const mobileHeaderProgress = refreshing ? 1 : pullProgress
+  const mobileContentY = Math.min(pullRaw * 0.18, 18) + overpullY
+  const contentOffsetY = isMobileLayout ? mobileContentY : overpullY
   const showPullIndicator = refreshing || pullRaw > 0
   const eased = refreshing || pullRaw === 0
+  const mobileHeaderLabel = refreshing
+    ? 'Memperbarui'
+    : pullProgress >= 1
+      ? 'Lepaskan'
+      : showPullIndicator
+        ? 'Tarik'
+        : ''
+  const mobileHeaderWidth = showPullIndicator || refreshing
+    ? 40 + mobileHeaderProgress * 92
+    : 40
 
   /* ---------------- Actions ---------------- */
   async function addLog(entry) {
@@ -1503,13 +1539,49 @@ export default function App() {
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="bg-gray-100 text-gray-600 px-3 py-2 rounded-full active:bg-gray-200 disabled:opacity-60"
+              className="hidden md:flex bg-gray-100 text-gray-600 px-3 py-2 rounded-full active:bg-gray-200 disabled:opacity-60"
               aria-label="Refresh"
             >
               <RefreshCw
                 size={18}
                 className={refreshing ? 'animate-spin text-sky-400' : 'text-gray-500'}
               />
+            </button>
+
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex md:hidden items-center justify-center gap-2 rounded-full border border-transparent bg-gray-100 text-gray-600 h-10 px-3 active:bg-gray-200 disabled:opacity-60 overflow-hidden transition-[width,background-color,border-color,color] duration-200"
+              style={{
+                width: mobileHeaderWidth,
+                backgroundColor: showPullIndicator || refreshing ? '#eff6ff' : undefined,
+                borderColor: showPullIndicator || refreshing ? '#dbeafe' : undefined,
+                color: showPullIndicator || refreshing ? '#0369a1' : undefined,
+              }}
+              aria-label="Refresh"
+            >
+              <RefreshCw
+                size={18}
+                className={refreshing ? 'animate-spin' : ''}
+                style={
+                  refreshing
+                    ? undefined
+                    : {
+                        transform: `rotate(${pullProgress * 180}deg)`,
+                        transition: 'transform 0.08s',
+                      }
+                }
+              />
+
+              <span
+                className="whitespace-nowrap text-sm font-semibold transition-[max-width,opacity] duration-200"
+                style={{
+                  maxWidth: showPullIndicator || refreshing ? 96 : 0,
+                  opacity: showPullIndicator || refreshing ? 1 : 0,
+                }}
+              >
+                {mobileHeaderLabel}
+              </span>
             </button>
 
             <button
@@ -1560,44 +1632,7 @@ export default function App() {
           </div>
         </div>
 
-        <div
-          className="pointer-events-none flex md:hidden overflow-hidden"
-          style={{
-            height: revealY,
-            transition: eased ? 'height 0.25s ease' : 'none',
-          }}
-        >
-          <div
-            className="flex h-full w-full items-center justify-center gap-2 border-y border-sky-100 bg-sky-50 text-sm font-semibold text-slate-600"
-            style={{
-              opacity: showPullIndicator ? 1 : 0,
-              transition: eased ? 'opacity 0.25s ease' : 'none',
-            }}
-          >
-            <RefreshCw
-              size={18}
-              className={refreshing ? 'animate-spin text-sky-500' : 'text-sky-500'}
-              style={
-                refreshing
-                  ? undefined
-                  : {
-                      transform: `rotate(${pullProgress * 180}deg)`,
-                      transition: 'transform 0.08s',
-                    }
-              }
-            />
-
-            <span>
-              {refreshing
-                ? 'Memperbarui catatan...'
-                : pullProgress >= 1
-                  ? 'Lepaskan untuk memperbarui'
-                  : 'Tarik ke bawah untuk refresh'}
-            </span>
-          </div>
-        </div>
-
-        {/* Reveal slot owns the first stage; only extra drag beyond the threshold rubber-bands the content */}
+        {/* Desktop keeps the under-header slot; mobile feedback lives in the header chip */}
         <div
           className="flex-1 min-h-0 overflow-y-auto px-4"
           ref={scrollRef}
@@ -1610,7 +1645,7 @@ export default function App() {
           <div
             className="pt-5"
             style={{
-              transform: `translateY(${overpullY}px)`,
+              transform: `translateY(${contentOffsetY}px)`,
               transition: eased ? 'transform 0.25s ease' : 'none',
             }}
           >
