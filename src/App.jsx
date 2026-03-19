@@ -104,9 +104,19 @@ const SAFE_TOP_PAD = 'calc(env(safe-area-inset-top, 0px) + 12px)'
 const SAFE_BOTTOM_PAD = 'calc(env(safe-area-inset-bottom, 0px) + 24px)'
 const APP_VIEWPORT_HEIGHT = '100dvh'
 const TRIGGER_PX = 80
-const MAX_PULL_Y = 56
+const MAX_PULL_Y = 96
+const REFRESH_HOLD_Y = 64
 const MIN_REFRESH_MS = 420
-const MAX_OVERPULL_Y = 12
+const DRAG_ACTIVATION_PX = 8
+const AXIS_LOCK_RATIO = 1.15
+const RELEASE_ANIM_MS = 280
+
+function rubberBandDistance(offset, dimension) {
+  if (offset <= 0) return 0
+
+  const constant = 0.55
+  return (offset * constant * dimension) / (dimension + constant * offset)
+}
 
 /* ============================================================
  * User Identity
@@ -1127,12 +1137,14 @@ function RekapScreen({ logs, onBack }) {
  * Pull-to-refresh design notes:
  * - Header remains fixed.
  * - Indicator grows underneath header.
- * - Content rubber-bands downward with damping.
- * - `touchmove` is manually attached with `{ passive: false }`
- *   so `preventDefault()` actually works on mobile.
+ * - Content rubber-bands downward with iOS-like resistance.
+ * - Touch is captured on the fixed viewport wrapper, not the browser scroller.
+ * - Browser/native pull-to-refresh is blocked locally via `preventDefault()`
+ *   while the custom downward gesture is active.
  */
 
 export default function App() {
+  const pullViewportRef = useRef(null)
   const scrollRef = useRef(null)
 
   const [logs, setLogs] = useState([])
@@ -1149,11 +1161,15 @@ export default function App() {
 
   /* ---------------- Pull-to-refresh state ---------------- */
   const [pullRaw, setPullRaw] = useState(0)
+  const [pullReleaseOffset, setPullReleaseOffset] = useState(null)
 
+  const touchStartXRef = useRef(0)
   const touchStartYRef = useRef(0)
+  const touchActiveRef = useRef(false)
   const isPullingRef = useRef(false)
   const pullRawRef = useRef(0)
   const handleRefreshRef = useRef(null)
+  const pullRefreshActiveRef = useRef(false)
   const refreshingRef = useRef(false)
 
   refreshingRef.current = refreshing
@@ -1217,17 +1233,36 @@ export default function App() {
       }
 
       setRefreshing(false)
+
+      if (pullRefreshActiveRef.current) {
+        pullRefreshActiveRef.current = false
+        setPullReleaseOffset(0)
+      }
     }
   }
 
   handleRefreshRef.current = handleRefresh
 
-  /* ---------------- Non-passive touch handlers ---------------- */
   useEffect(() => {
-    const el = scrollRef.current
-    if (!el) return
+    if (pullReleaseOffset === null || pullRaw > 0 || refreshing) return
+
+    const timeoutId = window.setTimeout(() => {
+      setPullReleaseOffset(current => (current === 0 ? null : current))
+    }, RELEASE_ANIM_MS)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [pullRaw, pullReleaseOffset, refreshing])
+
+  /* ---------------- Viewport-level touch handlers ---------------- */
+  useEffect(() => {
+    if (loading || !currentUser || screen !== 'home') return
+
+    const viewportEl = pullViewportRef.current
+    const scrollEl = scrollRef.current
+    if (!viewportEl || !scrollEl) return
 
     function resetPull() {
+      touchActiveRef.current = false
       isPullingRef.current = false
       pullRawRef.current = 0
       setPullRaw(0)
@@ -1239,58 +1274,126 @@ export default function App() {
         return
       }
 
-      if (el.scrollTop <= 0.5) {
-        touchStartYRef.current = e.touches[0].clientY
-        isPullingRef.current = true
-        pullRawRef.current = 0
-        setPullRaw(0)
-      } else {
-        resetPull()
+      const touch = e.touches[0]
+
+      touchActiveRef.current = true
+      touchStartXRef.current = touch.clientX
+      touchStartYRef.current = touch.clientY
+      isPullingRef.current = false
+      pullRawRef.current = 0
+      setPullRaw(0)
+
+      if (!refreshingRef.current) {
+        setPullReleaseOffset(null)
       }
     }
 
     function onTouchMove(e) {
-      if (!isPullingRef.current || refreshingRef.current) return
+      if (refreshingRef.current || !touchActiveRef.current) return
 
-      const diff = e.touches[0].clientY - touchStartYRef.current
-
-      if (diff > 0) {
-        e.preventDefault()
-        pullRawRef.current = diff
-        setPullRaw(diff)
-      } else {
+      if (e.touches.length !== 1) {
         resetPull()
+        return
       }
+
+      const touch = e.touches[0]
+
+      if (!isPullingRef.current && scrollEl.scrollTop > 0.5) {
+        touchStartXRef.current = touch.clientX
+        touchStartYRef.current = touch.clientY
+        return
+      }
+
+      const diffY = touch.clientY - touchStartYRef.current
+      const diffX = Math.abs(touch.clientX - touchStartXRef.current)
+
+      if (!isPullingRef.current) {
+        if (Math.abs(diffY) < DRAG_ACTIVATION_PX) return
+        if (diffY <= 0 || diffY < diffX * AXIS_LOCK_RATIO) return
+        if (scrollEl.scrollTop > 0.5) return
+
+        isPullingRef.current = true
+        setPullReleaseOffset(null)
+      }
+
+      e.preventDefault()
+
+      const nextPull = Math.max(diffY, 0)
+      pullRawRef.current = nextPull
+      setPullRaw(nextPull)
     }
 
-    function onTouchEnd() {
-      if (isPullingRef.current && pullRawRef.current > TRIGGER_PX) {
+    function finishPull(allowRefresh) {
+      const shouldRefresh =
+        allowRefresh &&
+        isPullingRef.current &&
+        pullRawRef.current >= TRIGGER_PX &&
+        !refreshingRef.current
+
+      if (shouldRefresh) {
+        pullRefreshActiveRef.current = true
+        setPullReleaseOffset(REFRESH_HOLD_Y)
         handleRefreshRef.current?.()
+      } else if (pullRawRef.current > 0) {
+        setPullReleaseOffset(0)
       }
 
       resetPull()
     }
 
-    el.addEventListener('touchstart', onTouchStart, { passive: true })
-    el.addEventListener('touchmove', onTouchMove, { passive: false })
-    el.addEventListener('touchend', onTouchEnd, { passive: true })
-    el.addEventListener('touchcancel', onTouchEnd, { passive: true })
+    function onTouchEnd() {
+      finishPull(true)
+    }
+
+    function onTouchCancel() {
+      finishPull(false)
+    }
+
+    viewportEl.addEventListener('touchstart', onTouchStart, {
+      passive: true,
+      capture: true,
+    })
+    viewportEl.addEventListener('touchmove', onTouchMove, {
+      passive: false,
+      capture: true,
+    })
+    viewportEl.addEventListener('touchend', onTouchEnd, {
+      passive: true,
+      capture: true,
+    })
+    viewportEl.addEventListener('touchcancel', onTouchCancel, {
+      passive: true,
+      capture: true,
+    })
 
     return () => {
-      el.removeEventListener('touchstart', onTouchStart)
-      el.removeEventListener('touchmove', onTouchMove)
-      el.removeEventListener('touchend', onTouchEnd)
-      el.removeEventListener('touchcancel', onTouchEnd)
+      viewportEl.removeEventListener('touchstart', onTouchStart, true)
+      viewportEl.removeEventListener('touchmove', onTouchMove, true)
+      viewportEl.removeEventListener('touchend', onTouchEnd, true)
+      viewportEl.removeEventListener('touchcancel', onTouchCancel, true)
     }
-  }, [])
+  }, [currentUser, loading, screen])
 
   /* ---------------- Derived pull values ---------------- */
+  const pullViewportHeight =
+    pullViewportRef.current?.clientHeight ||
+    (typeof window === 'undefined' ? 640 : window.innerHeight || 640)
+  const dragOffset = Math.min(
+    rubberBandDistance(pullRaw, pullViewportHeight),
+    MAX_PULL_Y
+  )
+  const pullOffset = pullReleaseOffset ?? dragOffset
   const pullProgress = Math.min(pullRaw / TRIGGER_PX, 1)
-  const overpullY = Math.min(Math.max(pullRaw - TRIGGER_PX, 0) * 0.18, MAX_OVERPULL_Y)
-  const rubberY = refreshing ? MAX_PULL_Y : pullProgress * MAX_PULL_Y + overpullY
-  const indicatorOffset = refreshing ? 0 : MAX_PULL_Y * (pullProgress - 1)
-  const showPullIndicator = refreshing || pullRaw > 0
-  const eased = refreshing || pullRaw === 0
+  const pullTransition =
+    pullRaw === 0
+      ? `transform ${RELEASE_ANIM_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`
+      : 'none'
+  const holdingOffset = refreshing || (pullReleaseOffset ?? 0) > 0
+  const indicatorOffset = holdingOffset ? 0 : pullOffset - MAX_PULL_Y
+  const indicatorScale = holdingOffset ? 1 : 0.92 + pullProgress * 0.08
+  const showPullIndicator =
+    refreshing || pullRaw > 0 || pullReleaseOffset !== null
+  const isArmed = pullRaw >= TRIGGER_PX
 
   /* ---------------- Actions ---------------- */
   async function addLog(entry) {
@@ -1521,19 +1624,24 @@ export default function App() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 relative overflow-hidden bg-gray-50">
+      <div
+        className="flex-1 min-h-0 relative overflow-hidden bg-gray-50"
+        ref={pullViewportRef}
+        style={{ overscrollBehaviorY: 'none' }}
+      >
         <div
           className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center overflow-hidden"
-          style={{ height: MAX_PULL_Y }}
+          style={{ height: MAX_PULL_Y + 20 }}
         >
           <div
             className="mt-2 flex items-center gap-2 bg-white rounded-full px-4 py-2 shadow-md"
             style={{
               opacity: showPullIndicator ? 1 : 0,
-              transform: `translateY(${indicatorOffset}px)`,
-              transition: eased
-                ? 'transform 0.25s ease, opacity 0.25s ease'
-                : 'none',
+              transform: `translateY(${indicatorOffset}px) scale(${indicatorScale})`,
+              transition:
+                pullRaw === 0
+                  ? `transform ${RELEASE_ANIM_MS}ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease`
+                  : 'none',
             }}
           >
             <RefreshCw
@@ -1543,7 +1651,7 @@ export default function App() {
                 refreshing
                   ? undefined
                   : {
-                      transform: `rotate(${pullProgress * 180}deg)`,
+                      transform: `rotate(${pullProgress * 220}deg)`,
                       transition: 'transform 0.08s',
                     }
               }
@@ -1552,19 +1660,19 @@ export default function App() {
             <span className="text-sm text-gray-500">
               {refreshing
                 ? 'Memperbarui...'
-                : pullProgress >= 1
-                  ? '🙌 Lepaskan!'
+                : isArmed
+                  ? '🙌 Lepaskan untuk refresh'
                   : 'Tarik untuk refresh'}
             </span>
           </div>
         </div>
 
-        {/* Scroll viewport stays fixed; inner content rubber-bands below the header */}
+        {/* Scroll viewport stays fixed; pull lives entirely in this local wrapper */}
         <div
           className="flex-1 min-h-0 h-full overflow-y-auto px-4"
           ref={scrollRef}
           style={{
-            overscrollBehaviorY: 'contain',
+            overscrollBehaviorY: 'none',
             WebkitOverflowScrolling: 'touch',
             paddingBottom: `calc(${SAFE_BOTTOM_PAD} + 72px)`,
           }}
@@ -1572,8 +1680,9 @@ export default function App() {
           <div
             className="pt-5"
             style={{
-              transform: `translateY(${rubberY}px)`,
-              transition: eased ? 'transform 0.25s ease' : 'none',
+              transform: `translateY(${pullOffset}px)`,
+              transition: pullTransition,
+              willChange: pullRaw > 0 ? 'transform' : undefined,
             }}
           >
             <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
