@@ -3,6 +3,8 @@
 > *"Even the smallest person can change the course of the future."*
 > — Lady Galadriel
 > **Current status:** `v1.4.0` stands as the golden production milestone of `main`; the slingshot pull-to-refresh quest now lives in the stable realm.
+> **Prod URL:** [https://mamicare-app.vercel.app](https://mamicare-app.vercel.app)
+> **Dev URL:** [https://mamicare-app-git-feature-local-ptr-1422dc-matchabears-projects.vercel.app](https://mamicare-app-git-feature-local-ptr-1422dc-matchabears-projects.vercel.app)
 
 ---
 
