@@ -2,7 +2,7 @@
 
 > *"Even the smallest person can change the course of the future."*
 > — Lady Galadriel
-> **Current status:** `v1.3.0` stands as the golden baseline of `main`; every future quest branches from this stable shrine.
+> **Current status:** `v1.4.0` stands as the golden production milestone of `main`; the slingshot pull-to-refresh quest now lives in the stable realm.
 
 ---
 
@@ -35,6 +35,18 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 ---
 
 ## 🗺️ The Quest Log (Changelog)
+
+### 🏔️ v1.4.0 — *"The Slingshot of the Shire"*
+`2026-03-20`
+- ✅ `feature/local-ptr-slingshot` merged into `main` as the new production milestone
+- ✅ Viewport-level touch capture — pull gesture now starts from the fixed app shell instead of the scrolling list
+- ✅ Native browser pull-to-refresh blocked during active custom drag — prevents Safari / Chrome from stealing the gesture
+- ✅ iOS-style rubber-band damping — downward drag now stretches with resistance instead of moving linearly
+- ✅ Drag activation threshold + axis lock — tiny or mostly horizontal swipes no longer arm the refresh by accident
+- ✅ Release animation + refresh hold offset — content settles back smoothly while refresh continues
+- ✅ Pull indicator now stays visible below the header during the slingshot interaction on mobile
+- ✅ Global overscroll protection added to app shell — keeps the effect local and stops browser bounce from fighting it
+- ✅ This release closes the `v1.3.0` gap where refresh worked but the spinner still failed to appear reliably on mobile
 
 ### 🏔️ v1.3.0 — *"The Return of the King"*
 `2026-03-18`
@@ -121,15 +133,12 @@ MamiCare is their One App — built to track meals, drinks, medications, and wou
 
 ## 🔭 The Road Goes Ever On (Roadmap)
 
-### 🧭 v1.3.1 — *"The Paths of the Dead"* *(next)*
-- [ ] 🫳 Pull-to-refresh rubber-band spinner — loading indicator visually appears below header on mobile
-
-### 🏰 v1.4.0 — *"The Palantír"*
+### 🏰 v1.5.0 — *"The Palantír"* *(next)*
 - [ ] 🔔 Push notification reminders — medication time, drink reminders
 - [ ] 📊 Berry's Dashboard — weekly drink and meal trend charts
 - [ ] 🚨 Alert when daily water intake falls below target
 
-### 👑 v1.5.0 — *"The Scouring of the Shire"*
+### 👑 v1.6.0 — *"The Scouring of the Shire"*
 - [ ] 📄 PDF export for doctor appointments
 - [ ] 📸 Wound photo upload — visual progress over time
 
