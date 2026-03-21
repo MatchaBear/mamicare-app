@@ -120,6 +120,22 @@ function buildPastRecordPayload(isPastRecord, entryDate, entryTime, lateReason) 
   }
 }
 
+function getValidationMessages(errors) {
+  return [...new Set(Object.values(errors).filter(Boolean))]
+}
+
+function hasValidationErrors(errors) {
+  return getValidationMessages(errors).length > 0
+}
+
+function getFieldShellClass(hasError, focusClass = 'focus:border-sky-400') {
+  if (hasError) {
+    return 'border-red-300 bg-red-50/40 focus:border-red-400'
+  }
+
+  return `border-gray-200 bg-white ${focusClass}`
+}
+
 function pad2(value) {
   return String(value).padStart(2, '0')
 }
@@ -838,6 +854,16 @@ function NotesField({ value, onChange }) {
   )
 }
 
+function FieldErrorText({ message, className = '' }) {
+  if (!message) return null
+
+  return (
+    <p className={`mt-2 text-sm font-semibold text-red-500 ${className}`.trim()}>
+      {message}
+    </p>
+  )
+}
+
 function PickerTriggerField({
   label,
   value,
@@ -1120,6 +1146,7 @@ function EntryTimingFields({
   onTimeChange,
   lateReason,
   onLateReasonChange,
+  lateReasonError = '',
 }) {
   const [activePicker, setActivePicker] = useState(null)
   const [calendarMonth, setCalendarMonth] = useState(() => {
@@ -1165,7 +1192,9 @@ function EntryTimingFields({
       </label>
 
       {enabled ? (
-        <div className="mt-3 overflow-hidden rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
+        <div className={`mt-3 overflow-hidden rounded-2xl border bg-sky-50/70 p-4 ${
+          lateReasonError ? 'border-red-200' : 'border-sky-100'
+        }`}>
           <p className="mb-3 text-sm text-gray-500">
             Isi waktu kejadian yang sebenarnya, lalu tambahkan alasan kenapa baru dicatat sekarang.
           </p>
@@ -1218,15 +1247,18 @@ function EntryTimingFields({
 
           <label className="block">
             <p className="mb-2 text-sm text-gray-500">
-              Alasan baru dicatat sekarang <span className="text-gray-400">(opsional)</span>
+              Alasan baru dicatat sekarang
             </p>
             <input
               type="text"
               value={lateReason}
               onChange={e => onLateReasonChange(e.target.value)}
               placeholder="Contoh: baru sempat diinput malam hari"
-              className="w-full rounded-2xl border-2 border-gray-200 bg-white px-4 py-3 text-base text-gray-700 focus:border-sky-400 focus:outline-none"
+              className={`w-full rounded-2xl border-2 px-4 py-3 text-base text-gray-700 focus:outline-none ${getFieldShellClass(
+                Boolean(lateReasonError)
+              )}`}
             />
+            <FieldErrorText message={lateReasonError} />
           </label>
         </div>
       ) : null}
@@ -1305,7 +1337,13 @@ function ModalShell({
  * - Tailwind does not always generate dynamic classes like `grid-cols-${cols}`.
  * - So we use a static class map instead.
  */
-function OptionGroup({ options, selected, onSelect, cols = 2 }) {
+function OptionGroup({
+  options,
+  selected,
+  onSelect,
+  cols = 2,
+  errorMessage = '',
+}) {
   const colClassMap = {
     1: 'grid-cols-1',
     2: 'grid-cols-2',
@@ -1316,24 +1354,39 @@ function OptionGroup({ options, selected, onSelect, cols = 2 }) {
   const gridColsClass = colClassMap[cols] || 'grid-cols-2'
 
   return (
-    <div className={`grid ${gridColsClass} gap-3 mb-6`}>
-      {options.map(opt => (
-        <button
-          key={String(opt.id)}
-          onClick={() => onSelect(opt.id)}
-          className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${selected === opt.id
-              ? 'bg-sky-500 text-white border-sky-500'
-              : 'bg-white text-gray-700 border-gray-200'
-            }`}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
+    <>
+      <div
+        className={`grid ${gridColsClass} gap-3 ${errorMessage ? 'mb-2 rounded-2xl border border-red-200 bg-red-50/60 p-2' : 'mb-6'
+          }`}
+      >
+        {options.map(opt => (
+          <button
+            key={String(opt.id)}
+            onClick={() => onSelect(opt.id)}
+            className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${selected === opt.id
+                ? 'bg-sky-500 text-white border-sky-500'
+                : errorMessage
+                  ? 'bg-white text-red-600 border-red-200'
+                  : 'bg-white text-gray-700 border-gray-200'
+              }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      <FieldErrorText message={errorMessage} className={errorMessage ? 'mb-4' : ''} />
+    </>
   )
 }
 
-function ToggleChipGroup({ options, selectedIds, onToggle, color = 'sky' }) {
+function ToggleChipGroup({
+  options,
+  selectedIds,
+  onToggle,
+  color = 'sky',
+  errorMessage = '',
+}) {
   const activeClassMap = {
     sky: 'bg-sky-500 text-white border-sky-500',
     rose: 'bg-rose-500 text-white border-rose-500',
@@ -1344,40 +1397,66 @@ function ToggleChipGroup({ options, selectedIds, onToggle, color = 'sky' }) {
   const activeClass = activeClassMap[color] || activeClassMap.sky
 
   return (
-    <div className="flex flex-wrap gap-2 mb-6">
-      {options.map(opt => {
-        const selected = selectedIds.includes(opt.id)
+    <>
+      <div className={`flex flex-wrap gap-2 ${errorMessage ? 'mb-2 rounded-2xl border border-red-200 bg-red-50/60 p-2' : 'mb-6'
+        }`}>
+        {options.map(opt => {
+          const selected = selectedIds.includes(opt.id)
 
-        return (
-          <button
-            key={opt.id}
-            onClick={() => onToggle(opt.id)}
-            className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${
-              selected
-                ? activeClass
-                : 'bg-white text-gray-600 border-gray-200'
-            }`}
-          >
-            {opt.label}
-          </button>
-        )
-      })}
-    </div>
+          return (
+            <button
+              key={opt.id}
+              onClick={() => onToggle(opt.id)}
+              className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${
+                selected
+                  ? activeClass
+                  : errorMessage
+                    ? 'bg-white text-red-600 border-red-200'
+                    : 'bg-white text-gray-600 border-gray-200'
+              }`}
+            >
+              {opt.label}
+            </button>
+          )
+        })}
+      </div>
+
+      <FieldErrorText message={errorMessage} className={errorMessage ? 'mb-4' : ''} />
+    </>
   )
 }
 
-function SaveButton({ canSave, onSave, saving = false }) {
+function SaveButton({ onSave, saving = false, errors = [] }) {
+  const visibleErrors = errors.filter(Boolean)
+
   return (
-    <button
-      onClick={() => canSave && !saving && onSave()}
-      disabled={!canSave || saving}
-      className={`w-full py-5 text-xl font-bold rounded-2xl transition-all ${canSave && !saving
-          ? 'bg-sky-500 text-white active:bg-sky-600'
-          : 'bg-gray-100 text-gray-400'
-        }`}
-    >
-      {saving ? 'Menyimpan...' : '✅ SIMPAN'}
-    </button>
+    <div>
+      <button
+        onClick={() => !saving && onSave()}
+        disabled={saving}
+        className={`w-full py-5 text-xl font-bold rounded-2xl transition-all ${saving
+            ? 'bg-gray-100 text-gray-400'
+            : 'bg-sky-500 text-white active:bg-sky-600'
+          }`}
+      >
+        {saving ? 'Menyimpan...' : '✅ SIMPAN'}
+      </button>
+
+      {visibleErrors.length > 0 ? (
+        <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
+          <p className="text-sm font-bold text-red-600">
+            Masih ada bagian wajib yang belum lengkap.
+          </p>
+          <div className="mt-1 space-y-1">
+            {visibleErrors.map(message => (
+              <p key={message} className="text-sm font-medium text-red-500">
+                {message}
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -1446,6 +1525,7 @@ function DrinkModal({ onClose, onSave, saving = false }) {
   const [entryDate, setEntryDate] = useState(today())
   const [entryTime, setEntryTime] = useState(nowInputTime())
   const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
 
   const drinkTypes = [
     { id: 'water', label: '💧 Air Putih' },
@@ -1460,6 +1540,34 @@ function DrinkModal({ onClose, onSave, saving = false }) {
     { id: 2, label: '2 gelas' },
   ]
 
+  const errors = {
+    drinkKind: !drinkKind ? 'Pilih jenis minuman dulu.' : '',
+    amount: !amount ? 'Pilih jumlah minuman dulu.' : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      type: drinkKind,
+      amount,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
+
   return (
     <ModalShell onClose={onClose} title="💧 Catat Minum">
       <p className="text-gray-500 text-lg mb-3">Minuman apa?</p>
@@ -1468,6 +1576,7 @@ function DrinkModal({ onClose, onSave, saving = false }) {
         selected={drinkKind}
         onSelect={setDrinkKind}
         cols={2}
+        errorMessage={visibleErrors.drinkKind}
       />
 
       <p className="text-gray-500 text-lg mb-3">Berapa banyak?</p>
@@ -1476,6 +1585,7 @@ function DrinkModal({ onClose, onSave, saving = false }) {
         selected={amount}
         onSelect={setAmount}
         cols={3}
+        errorMessage={visibleErrors.amount}
       />
 
       <EntryTimingFields
@@ -1487,26 +1597,15 @@ function DrinkModal({ onClose, onSave, saving = false }) {
         onTimeChange={setEntryTime}
         lateReason={lateReason}
         onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
       />
 
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
-        canSave={drinkKind && amount}
         saving={saving}
-        onSave={() =>
-          onSave({
-            type: drinkKind,
-            amount,
-            notes,
-            ...buildPastRecordPayload(
-              isPastRecord,
-              entryDate,
-              entryTime,
-              lateReason
-            ),
-          })
-        }
+        onSave={handleSubmit}
+        errors={summaryErrors}
       />
     </ModalShell>
   )
@@ -1527,6 +1626,7 @@ function MealModal({ onClose, onSave, saving = false }) {
   const [entryDate, setEntryDate] = useState(today())
   const [entryTime, setEntryTime] = useState(nowInputTime())
   const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
 
   const mealTypes = [
     { id: 'breakfast', label: '🌅 Sarapan' },
@@ -1541,7 +1641,35 @@ function MealModal({ onClose, onSave, saving = false }) {
     { id: 'large', label: '🫕 Banyak' },
   ]
 
-  const canSave = mealType && foodText.trim().length > 0 && portion
+  const errors = {
+    mealType: !mealType ? 'Pilih waktu makan dulu.' : '',
+    foodText: !foodText.trim() ? 'Menu makan wajib diisi.' : '',
+    portion: !portion ? 'Pilih porsi makan dulu.' : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      mealType,
+      foodText,
+      portion,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
 
   return (
     <ModalShell onClose={onClose} title="🍽️ Catat Makan">
@@ -1551,6 +1679,7 @@ function MealModal({ onClose, onSave, saving = false }) {
         selected={mealType}
         onSelect={setMealType}
         cols={2}
+        errorMessage={visibleErrors.mealType}
       />
 
       <p className="text-gray-500 text-lg mb-3">Menu apa?</p>
@@ -1559,8 +1688,11 @@ function MealModal({ onClose, onSave, saving = false }) {
         onChange={e => setFoodText(e.target.value)}
         placeholder="Contoh: Nasi putih, ayam goreng, sayur bayam..."
         rows={3}
-        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 resize-none focus:outline-none focus:border-sky-400 mb-6"
+        className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 resize-none focus:outline-none mb-2 ${getFieldShellClass(
+          Boolean(visibleErrors.foodText)
+        )}`}
       />
+      <FieldErrorText message={visibleErrors.foodText} className="mb-4" />
 
       <p className="text-gray-500 text-lg mb-3">Porsinya?</p>
       <OptionGroup
@@ -1568,6 +1700,7 @@ function MealModal({ onClose, onSave, saving = false }) {
         selected={portion}
         onSelect={setPortion}
         cols={3}
+        errorMessage={visibleErrors.portion}
       />
 
       <EntryTimingFields
@@ -1579,27 +1712,15 @@ function MealModal({ onClose, onSave, saving = false }) {
         onTimeChange={setEntryTime}
         lateReason={lateReason}
         onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
       />
 
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
-        canSave={canSave}
         saving={saving}
-        onSave={() =>
-          onSave({
-            mealType,
-            foodText,
-            portion,
-            notes,
-            ...buildPastRecordPayload(
-              isPastRecord,
-              entryDate,
-              entryTime,
-              lateReason
-            ),
-          })
-        }
+        onSave={handleSubmit}
+        errors={summaryErrors}
       />
     </ModalShell>
   )
@@ -1620,6 +1741,7 @@ function MedModal({ onClose, onSave, saving = false }) {
   const [entryDate, setEntryDate] = useState(today())
   const [entryTime, setEntryTime] = useState(nowInputTime())
   const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
 
   const statuses = [
     { id: 'taken', label: '✅ Sudah Minum' },
@@ -1627,13 +1749,39 @@ function MedModal({ onClose, onSave, saving = false }) {
     { id: 'half', label: '½ Setengah Dosis' },
   ]
 
-  const canSave = medName.trim().length > 0 && status
+  const errors = {
+    medName: !medName.trim() ? 'Nama obat wajib dipilih atau diisi.' : '',
+    status: !status ? 'Pilih status obat dulu.' : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      medName,
+      status,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
 
   return (
     <ModalShell onClose={onClose} title="💊 Catat Obat">
       <p className="text-gray-500 text-lg mb-3">Obat apa?</p>
 
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className={`flex flex-wrap gap-2 ${visibleErrors.medName ? 'mb-2 rounded-2xl border border-red-200 bg-red-50/60 p-2' : 'mb-4'}`}>
         {MEDICATION_PRESETS.map(preset => (
           <button
             key={preset}
@@ -1643,7 +1791,9 @@ function MedModal({ onClose, onSave, saving = false }) {
             }}
             className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${medName === preset && !isOther
                 ? 'bg-purple-500 text-white border-purple-500'
-                : 'bg-white text-gray-600 border-gray-200'
+                : visibleErrors.medName
+                  ? 'bg-white text-red-600 border-red-200'
+                  : 'bg-white text-gray-600 border-gray-200'
               }`}
           >
             {preset}
@@ -1651,27 +1801,39 @@ function MedModal({ onClose, onSave, saving = false }) {
         ))}
 
         <button
-          onClick={() => {
-            setMedName('')
-            setIsOther(true)
-          }}
-          className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${isOther
-              ? 'bg-purple-500 text-white border-purple-500'
-              : 'bg-white text-gray-600 border-gray-200'
-            }`}
+            onClick={() => {
+              setMedName('')
+              setIsOther(true)
+            }}
+            className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${isOther
+                ? 'bg-purple-500 text-white border-purple-500'
+                : visibleErrors.medName
+                  ? 'bg-white text-red-600 border-red-200'
+                  : 'bg-white text-gray-600 border-gray-200'
+              }`}
         >
           ✏️ Obat Lainnya
         </button>
       </div>
+      <FieldErrorText
+        message={!isOther ? visibleErrors.medName : ''}
+        className={!isOther && visibleErrors.medName ? 'mb-4' : ''}
+      />
 
       {isOther && (
-        <input
-          type="text"
-          value={medName}
-          onChange={e => setMedName(e.target.value)}
-          placeholder="Silakan isi nama obat di sini..."
-          className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-purple-400 mb-6"
-        />
+        <>
+          <input
+            type="text"
+            value={medName}
+            onChange={e => setMedName(e.target.value)}
+            placeholder="Silakan isi nama obat di sini..."
+            className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none mb-2 ${getFieldShellClass(
+              Boolean(visibleErrors.medName),
+              'focus:border-purple-400'
+            )}`}
+          />
+          <FieldErrorText message={visibleErrors.medName} className="mb-4" />
+        </>
       )}
 
       <p className="text-gray-500 text-lg mb-3">Status?</p>
@@ -1680,6 +1842,7 @@ function MedModal({ onClose, onSave, saving = false }) {
         selected={status}
         onSelect={setStatus}
         cols={1}
+        errorMessage={visibleErrors.status}
       />
 
       <EntryTimingFields
@@ -1691,26 +1854,15 @@ function MedModal({ onClose, onSave, saving = false }) {
         onTimeChange={setEntryTime}
         lateReason={lateReason}
         onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
       />
 
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
-        canSave={canSave}
         saving={saving}
-        onSave={() =>
-          onSave({
-            medName,
-            status,
-            notes,
-            ...buildPastRecordPayload(
-              isPastRecord,
-              entryDate,
-              entryTime,
-              lateReason
-            ),
-          })
-        }
+        onSave={handleSubmit}
+        errors={summaryErrors}
       />
     </ModalShell>
   )
@@ -1725,6 +1877,7 @@ function GlucoseModal({ onClose, onSave, saving = false }) {
   const [entryDate, setEntryDate] = useState(today())
   const [entryTime, setEntryTime] = useState(nowInputTime())
   const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
 
   function toggleSymptom(id) {
     setSymptoms(prev => {
@@ -1739,12 +1892,39 @@ function GlucoseModal({ onClose, onSave, saving = false }) {
     })
   }
 
-  const canSave = Number(reading) > 0 && context
+  const errors = {
+    reading: Number(reading) > 0 ? '' : 'Hasil gula darah wajib diisi.',
+    context: !context ? 'Pilih waktu cek gula darah dulu.' : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      reading,
+      context,
+      symptoms,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
 
   return (
     <ModalShell onClose={onClose} title="🩸 Catat Gula Darah">
       <p className="text-gray-500 text-lg mb-3">Hasil berapa mg/dL?</p>
-      <div className="mb-6">
+      <div className="mb-2">
         <div className="relative">
           <input
             type="number"
@@ -1753,13 +1933,17 @@ function GlucoseModal({ onClose, onSave, saving = false }) {
             value={reading}
             onChange={e => setReading(e.target.value)}
             placeholder="Contoh: 128"
-            className="w-full border-2 border-gray-200 rounded-2xl p-4 pr-24 text-2xl font-bold text-gray-700 focus:outline-none focus:border-red-400"
+            className={`w-full border-2 rounded-2xl p-4 pr-24 text-2xl font-bold text-gray-700 focus:outline-none ${getFieldShellClass(
+              Boolean(visibleErrors.reading),
+              'focus:border-red-400'
+            )}`}
           />
           <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
             mg/dL
           </span>
         </div>
       </div>
+      <FieldErrorText message={visibleErrors.reading} className="mb-4" />
 
       <p className="text-gray-500 text-lg mb-3">Cek kapan?</p>
       <OptionGroup
@@ -1767,6 +1951,7 @@ function GlucoseModal({ onClose, onSave, saving = false }) {
         selected={context}
         onSelect={setContext}
         cols={1}
+        errorMessage={visibleErrors.context}
       />
 
       <p className="text-gray-500 text-lg mb-3">
@@ -1788,27 +1973,15 @@ function GlucoseModal({ onClose, onSave, saving = false }) {
         onTimeChange={setEntryTime}
         lateReason={lateReason}
         onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
       />
 
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
-        canSave={canSave}
         saving={saving}
-        onSave={() =>
-          onSave({
-            reading,
-            context,
-            symptoms,
-            notes,
-            ...buildPastRecordPayload(
-              isPastRecord,
-              entryDate,
-              entryTime,
-              lateReason
-            ),
-          })
-        }
+        onSave={handleSubmit}
+        errors={summaryErrors}
       />
     </ModalShell>
   )
@@ -1834,17 +2007,53 @@ function GlucoseTargetModal({
   const [entryDate, setEntryDate] = useState(today())
   const [entryTime, setEntryTime] = useState(nowInputTime())
   const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
 
   const lowValue = Number(lowThreshold)
   const preMealValue = Number(preMealHigh)
   const postMealValue = Number(postMealHigh)
-  const canSave =
-    Number.isFinite(lowValue) &&
-    Number.isFinite(preMealValue) &&
-    Number.isFinite(postMealValue) &&
-    lowValue > 0 &&
-    preMealValue > lowValue &&
-    postMealValue >= preMealValue
+  const errors = {
+    lowThreshold:
+      Number.isFinite(lowValue) && lowValue > 0
+        ? ''
+        : 'Batas rendah peringatan wajib diisi.',
+    preMealHigh:
+      !Number.isFinite(preMealValue) || preMealValue <= 0
+        ? 'Target sebelum makan wajib diisi.'
+        : preMealValue <= lowValue
+          ? 'Target sebelum makan harus lebih tinggi dari batas rendah.'
+          : '',
+    postMealHigh:
+      !Number.isFinite(postMealValue) || postMealValue <= 0
+        ? 'Target sesudah makan wajib diisi.'
+        : postMealValue < preMealValue
+          ? 'Target sesudah makan harus sama atau lebih tinggi dari target sebelum makan.'
+          : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      lowThreshold: lowValue,
+      preMealHigh: preMealValue,
+      postMealHigh: postMealValue,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
 
   return (
     <ModalShell onClose={onClose} title="🎯 Atur Target Gula">
@@ -1857,49 +2066,61 @@ function GlucoseTargetModal({
       </div>
 
       <p className="text-gray-500 text-lg mb-3">Batas rendah peringatan</p>
-      <div className="relative mb-6">
+      <div className="relative mb-2">
         <input
           type="number"
           inputMode="numeric"
           min="1"
           value={lowThreshold}
           onChange={e => setLowThreshold(e.target.value)}
-          className="w-full border-2 border-gray-200 rounded-2xl p-4 pr-24 text-xl font-bold text-gray-700 focus:outline-none focus:border-red-400"
+          className={`w-full border-2 rounded-2xl p-4 pr-24 text-xl font-bold text-gray-700 focus:outline-none ${getFieldShellClass(
+            Boolean(visibleErrors.lowThreshold),
+            'focus:border-red-400'
+          )}`}
         />
         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
           mg/dL
         </span>
       </div>
+      <FieldErrorText message={visibleErrors.lowThreshold} className="mb-4" />
 
       <p className="text-gray-500 text-lg mb-3">Target maksimal sebelum makan</p>
-      <div className="relative mb-6">
+      <div className="relative mb-2">
         <input
           type="number"
           inputMode="numeric"
           min="1"
           value={preMealHigh}
           onChange={e => setPreMealHigh(e.target.value)}
-          className="w-full border-2 border-gray-200 rounded-2xl p-4 pr-24 text-xl font-bold text-gray-700 focus:outline-none focus:border-red-400"
+          className={`w-full border-2 rounded-2xl p-4 pr-24 text-xl font-bold text-gray-700 focus:outline-none ${getFieldShellClass(
+            Boolean(visibleErrors.preMealHigh),
+            'focus:border-red-400'
+          )}`}
         />
         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
           mg/dL
         </span>
       </div>
+      <FieldErrorText message={visibleErrors.preMealHigh} className="mb-4" />
 
       <p className="text-gray-500 text-lg mb-3">Target maksimal sesudah makan</p>
-      <div className="relative mb-6">
+      <div className="relative mb-2">
         <input
           type="number"
           inputMode="numeric"
           min="1"
           value={postMealHigh}
           onChange={e => setPostMealHigh(e.target.value)}
-          className="w-full border-2 border-gray-200 rounded-2xl p-4 pr-24 text-xl font-bold text-gray-700 focus:outline-none focus:border-red-400"
+          className={`w-full border-2 rounded-2xl p-4 pr-24 text-xl font-bold text-gray-700 focus:outline-none ${getFieldShellClass(
+            Boolean(visibleErrors.postMealHigh),
+            'focus:border-red-400'
+          )}`}
         />
         <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
           mg/dL
         </span>
       </div>
+      <FieldErrorText message={visibleErrors.postMealHigh} className="mb-4" />
 
       <EntryTimingFields
         enabled={isPastRecord}
@@ -1910,27 +2131,15 @@ function GlucoseTargetModal({
         onTimeChange={setEntryTime}
         lateReason={lateReason}
         onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
       />
 
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
-        canSave={canSave}
         saving={saving}
-        onSave={() =>
-          onSave({
-            lowThreshold: lowValue,
-            preMealHigh: preMealValue,
-            postMealHigh: postMealValue,
-            notes,
-            ...buildPastRecordPayload(
-              isPastRecord,
-              entryDate,
-              entryTime,
-              lateReason
-            ),
-          })
-        }
+        onSave={handleSubmit}
+        errors={summaryErrors}
       />
     </ModalShell>
   )
@@ -1949,18 +2158,54 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
   const [entryDate, setEntryDate] = useState(today())
   const [entryTime, setEntryTime] = useState(nowInputTime())
   const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
 
-  const canSave =
-    medicationName.trim().length > 0 &&
-    dosageText.trim().length > 0 &&
-    prescribedBy.trim().length > 0 &&
-    (planStatus === 'stopped' || (frequency && scheduleText.trim().length > 0))
+  const errors = {
+    medicationName: !medicationName.trim() ? 'Nama obat wajib dipilih atau diisi.' : '',
+    dosageText: !dosageText.trim() ? 'Dosis obat wajib diisi.' : '',
+    prescribedBy: !prescribedBy.trim() ? 'Nama dokter wajib diisi.' : '',
+    frequency:
+      planStatus === 'active' && !frequency
+        ? 'Pilih frekuensi minum obat dulu.'
+        : '',
+    scheduleText:
+      planStatus === 'active' && !scheduleText.trim()
+        ? 'Jadwal minum obat wajib diisi.'
+        : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      medicationName,
+      dosageText,
+      prescribedBy,
+      frequency,
+      scheduleText,
+      planStatus,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
 
   return (
     <ModalShell onClose={onClose} title="🗓️ Atur Jadwal Obat">
       <p className="text-gray-500 text-lg mb-3">Obat yang diresepkan?</p>
 
-      <div className="flex flex-wrap gap-2 mb-4">
+      <div className={`flex flex-wrap gap-2 ${visibleErrors.medicationName ? 'mb-2 rounded-2xl border border-red-200 bg-red-50/60 p-2' : 'mb-4'}`}>
         {MEDICATION_PRESETS.map(preset => (
           <button
             key={preset}
@@ -1971,7 +2216,9 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
             className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${
               medicationName === preset && !isOther
                 ? 'bg-purple-500 text-white border-purple-500'
-                : 'bg-white text-gray-600 border-gray-200'
+                : visibleErrors.medicationName
+                  ? 'bg-white text-red-600 border-red-200'
+                  : 'bg-white text-gray-600 border-gray-200'
             }`}
           >
             {preset}
@@ -1986,21 +2233,33 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
           className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${
             isOther
               ? 'bg-purple-500 text-white border-purple-500'
-              : 'bg-white text-gray-600 border-gray-200'
+              : visibleErrors.medicationName
+                ? 'bg-white text-red-600 border-red-200'
+                : 'bg-white text-gray-600 border-gray-200'
           }`}
         >
           ✏️ Obat Lainnya
         </button>
       </div>
+      <FieldErrorText
+        message={!isOther ? visibleErrors.medicationName : ''}
+        className={!isOther && visibleErrors.medicationName ? 'mb-4' : ''}
+      />
 
       {isOther && (
-        <input
-          type="text"
-          value={medicationName}
-          onChange={e => setMedicationName(e.target.value)}
-          placeholder="Nama obat..."
-          className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-purple-400 mb-6"
-        />
+        <>
+          <input
+            type="text"
+            value={medicationName}
+            onChange={e => setMedicationName(e.target.value)}
+            placeholder="Nama obat..."
+            className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none mb-2 ${getFieldShellClass(
+              Boolean(visibleErrors.medicationName),
+              'focus:border-purple-400'
+            )}`}
+          />
+          <FieldErrorText message={visibleErrors.medicationName} className="mb-4" />
+        </>
       )}
 
       <p className="text-gray-500 text-lg mb-3">Dosis yang diresepkan?</p>
@@ -2009,8 +2268,12 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
         value={dosageText}
         onChange={e => setDosageText(e.target.value)}
         placeholder="Contoh: 500 mg atau 10 unit"
-        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-purple-400 mb-6"
+        className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none mb-2 ${getFieldShellClass(
+          Boolean(visibleErrors.dosageText),
+          'focus:border-purple-400'
+        )}`}
       />
+      <FieldErrorText message={visibleErrors.dosageText} className="mb-4" />
 
       <p className="text-gray-500 text-lg mb-3">Diresepkan oleh siapa?</p>
       <input
@@ -2018,8 +2281,12 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
         value={prescribedBy}
         onChange={e => setPrescribedBy(e.target.value)}
         placeholder="Contoh: dr. Andi, Sp.PD"
-        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-purple-400 mb-6"
+        className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none mb-2 ${getFieldShellClass(
+          Boolean(visibleErrors.prescribedBy),
+          'focus:border-purple-400'
+        )}`}
       />
+      <FieldErrorText message={visibleErrors.prescribedBy} className="mb-4" />
 
       <p className="text-gray-500 text-lg mb-3">Status resep saat ini?</p>
       <OptionGroup
@@ -2037,6 +2304,7 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
             selected={frequency}
             onSelect={setFrequency}
             cols={2}
+            errorMessage={visibleErrors.frequency}
           />
 
           <p className="text-gray-500 text-lg mb-3">Kapan diminum?</p>
@@ -2045,8 +2313,12 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
             onChange={e => setScheduleText(e.target.value)}
             placeholder="Contoh: Sesudah sarapan jam 07:00 dan sesudah makan malam jam 19:00"
             rows={3}
-            className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 resize-none focus:outline-none focus:border-purple-400 mb-6"
+            className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 resize-none focus:outline-none mb-2 ${getFieldShellClass(
+              Boolean(visibleErrors.scheduleText),
+              'focus:border-purple-400'
+            )}`}
           />
+          <FieldErrorText message={visibleErrors.scheduleText} className="mb-4" />
         </>
       ) : null}
 
@@ -2059,30 +2331,15 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
         onTimeChange={setEntryTime}
         lateReason={lateReason}
         onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
       />
 
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
-        canSave={canSave}
         saving={saving}
-        onSave={() =>
-          onSave({
-            medicationName,
-            dosageText,
-            prescribedBy,
-            frequency,
-            scheduleText,
-            planStatus,
-            notes,
-            ...buildPastRecordPayload(
-              isPastRecord,
-              entryDate,
-              entryTime,
-              lateReason
-            ),
-          })
-        }
+        onSave={handleSubmit}
+        errors={summaryErrors}
       />
     </ModalShell>
   )
@@ -2109,6 +2366,7 @@ function WoundModal({ onClose, onSave, saving = false }) {
   const [entryDate, setEntryDate] = useState(today())
   const [entryTime, setEntryTime] = useState(nowInputTime())
   const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
 
   const conditions = [
     { id: 'better', label: '😊 Lebih Baik' },
@@ -2131,10 +2389,40 @@ function WoundModal({ onClose, onSave, saving = false }) {
     )
   }
 
-  const canSave =
-    condition &&
-    dressingChanged !== null &&
-    (appearance.length > 0 || appearanceOther.trim().length > 0)
+  const errors = {
+    condition: !condition ? 'Pilih kondisi luka dulu.' : '',
+    appearance:
+      appearance.length > 0 || appearanceOther.trim().length > 0
+        ? ''
+        : 'Pilih tampilan luka atau isi deskripsi lainnya.',
+    dressingChanged:
+      dressingChanged === null ? 'Pilih status ganti perban dulu.' : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      condition,
+      appearance,
+      appearanceOther,
+      dressingChanged,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
 
   return (
     <ModalShell onClose={onClose} title="🩹 Cek Kondisi Luka">
@@ -2144,20 +2432,23 @@ function WoundModal({ onClose, onSave, saving = false }) {
         selected={condition}
         onSelect={setCondition}
         cols={3}
+        errorMessage={visibleErrors.condition}
       />
 
       <p className="text-gray-500 text-lg mb-3">
         Tampilan luka? <span className="text-sm">(pilih semua yang sesuai)</span>
       </p>
 
-      <div className="grid grid-cols-2 gap-3 mb-4">
+      <div className={`grid grid-cols-2 gap-3 ${visibleErrors.appearance ? 'mb-2 rounded-2xl border border-red-200 bg-red-50/60 p-2' : 'mb-4'}`}>
         {appearanceOptions.map(opt => (
           <button
             key={opt.id}
             onClick={() => toggleAppearance(opt.id)}
             className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${appearance.includes(opt.id)
                 ? 'bg-rose-500 text-white border-rose-500'
-                : 'bg-white text-gray-700 border-gray-200'
+                : visibleErrors.appearance
+                  ? 'bg-white text-red-600 border-red-200'
+                  : 'bg-white text-gray-700 border-gray-200'
               }`}
           >
             {opt.label}
@@ -2170,12 +2461,16 @@ function WoundModal({ onClose, onSave, saving = false }) {
         value={appearanceOther}
         onChange={e => setAppearanceOther(e.target.value)}
         placeholder="Deskripsi tampilan luka lainnya... (opsional)"
-        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-rose-400 mb-6"
+        className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none mb-2 ${getFieldShellClass(
+          Boolean(visibleErrors.appearance),
+          'focus:border-rose-400'
+        )}`}
       />
+      <FieldErrorText message={visibleErrors.appearance} className="mb-4" />
 
       <p className="text-gray-500 text-lg mb-3">Ganti perban hari ini?</p>
 
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      <div className={`grid grid-cols-2 gap-3 ${visibleErrors.dressingChanged ? 'mb-2 rounded-2xl border border-red-200 bg-red-50/60 p-2' : 'mb-6'}`}>
         {[
           { id: true, label: '✅ Sudah Ganti' },
           { id: false, label: '⏭️ Belum Ganti' },
@@ -2185,13 +2480,16 @@ function WoundModal({ onClose, onSave, saving = false }) {
             onClick={() => setDressingChanged(opt.id)}
             className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${dressingChanged === opt.id
                 ? 'bg-sky-500 text-white border-sky-500'
-                : 'bg-white text-gray-700 border-gray-200'
+                : visibleErrors.dressingChanged
+                  ? 'bg-white text-red-600 border-red-200'
+                  : 'bg-white text-gray-700 border-gray-200'
               }`}
           >
             {opt.label}
           </button>
         ))}
       </div>
+      <FieldErrorText message={visibleErrors.dressingChanged} className="mb-4" />
 
       <EntryTimingFields
         enabled={isPastRecord}
@@ -2202,28 +2500,15 @@ function WoundModal({ onClose, onSave, saving = false }) {
         onTimeChange={setEntryTime}
         lateReason={lateReason}
         onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
       />
 
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
-        canSave={canSave}
         saving={saving}
-        onSave={() =>
-          onSave({
-            condition,
-            appearance,
-            appearanceOther,
-            dressingChanged,
-            notes,
-            ...buildPastRecordPayload(
-              isPastRecord,
-              entryDate,
-              entryTime,
-              lateReason
-            ),
-          })
-        }
+        onSave={handleSubmit}
+        errors={summaryErrors}
       />
     </ModalShell>
   )
