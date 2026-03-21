@@ -20,8 +20,8 @@ import { supabase } from './supabase'
  * - UserPickerScreen: choose who is currently using the device
  * - UpdatePrompt: PWA new-version prompt
  * - ModalShell: shared bottom-sheet shell for all data-entry modals
- * - DrinkModal / MealModal / MedModal / WoundModal: form entry screens
- * - DrinkCard: today hydration progress
+ * - DrinkModal / MealModal / MedModal / GlucoseModal / MedicationPlanModal / WoundModal: form entry screens
+ * - DrinkCard / GlucoseCard / MedicationPlanCard: home summary cards
  * - TodayTimeline: today's logs
  * - RekapScreen: grouped history / archive screen
  * - App: state orchestration, Supabase sync, pull-to-refresh, screen routing
@@ -54,6 +54,12 @@ import { supabase } from './supabase'
  *
  * 7. Cleaned up wording mismatch in wound form:
  *    - "Other appearance" text is now clearly optional in the UI and logic.
+ *
+ * 8. Structured metadata compatibility layer:
+ *    - New care flows in this branch need more structure than `summary` text alone.
+ *    - To stay compatible with the current production `logs` table, structured fields
+ *      are packed into the existing `notes` column with a hidden metadata prefix.
+ *    - This keeps the branch shippable before a dedicated DB migration lands.
  *
  * NOTE ABOUT DATABASE COMPATIBILITY
  * - I kept the saved payload compatible with your current code style.
@@ -110,12 +116,269 @@ const MIN_REFRESH_MS = 420
 const DRAG_ACTIVATION_PX = 8
 const AXIS_LOCK_RATIO = 1.15
 const RELEASE_ANIM_MS = 280
+const NOTE_META_PREFIX = '[[MC_META]]'
+
+const TYPE_CONFIG = {
+  drink: { emoji: '💧', label: 'Minum' },
+  meal: { emoji: '🍽️', label: 'Makan' },
+  med: { emoji: '💊', label: 'Obat' },
+  wound: { emoji: '🩹', label: 'Luka' },
+  glucose: { emoji: '🩸', label: 'Gula Darah' },
+  med_plan: { emoji: '🗓️', label: 'Jadwal Obat' },
+}
+
+const MEDICATION_PRESETS = [
+  'Metformin',
+  'Glibenclamide',
+  'Glimepiride',
+  'Insulin',
+  'Acarbose',
+  'Vitamin B12',
+]
+
+const GLUCOSE_CONTEXT_OPTIONS = [
+  { id: 'fasting', label: '🌅 Puasa' },
+  { id: 'before_meal', label: '🍽️ Sebelum Makan' },
+  { id: 'after_meal', label: '⏱️ 2 Jam Sesudah Makan' },
+  { id: 'bedtime', label: '🌙 Sebelum Tidur' },
+  { id: 'random', label: '🕒 Sewaktu' },
+]
+
+const GLUCOSE_CONTEXT_LABELS = {
+  fasting: 'Puasa',
+  before_meal: 'Sebelum makan',
+  after_meal: '2 jam sesudah makan',
+  bedtime: 'Sebelum tidur',
+  random: 'Sewaktu',
+}
+
+const GLUCOSE_SYMPTOM_OPTIONS = [
+  { id: 'weak', label: 'Lemas' },
+  { id: 'dizzy', label: 'Pusing' },
+  { id: 'shaky', label: 'Gemetar' },
+  { id: 'sweaty', label: 'Berkeringat' },
+  { id: 'nausea', label: 'Mual' },
+  { id: 'none', label: 'Tidak ada keluhan' },
+]
+
+const GLUCOSE_SYMPTOM_LABELS = {
+  weak: 'Lemas',
+  dizzy: 'Pusing',
+  shaky: 'Gemetar',
+  sweaty: 'Berkeringat',
+  nausea: 'Mual',
+  none: 'Tidak ada keluhan',
+}
+
+const MED_PLAN_FREQUENCY_OPTIONS = [
+  { id: 'once_daily', label: '1x sehari' },
+  { id: 'twice_daily', label: '2x sehari' },
+  { id: 'three_daily', label: '3x sehari' },
+  { id: 'as_needed', label: 'Sesuai perlu' },
+]
+
+const MED_PLAN_FREQUENCY_LABELS = {
+  once_daily: '1x sehari',
+  twice_daily: '2x sehari',
+  three_daily: '3x sehari',
+  as_needed: 'Sesuai perlu',
+}
+
+const MED_PLAN_STATUS_OPTIONS = [
+  { id: 'active', label: '✅ Aktif' },
+  { id: 'stopped', label: '⏸️ Dihentikan' },
+]
+
+const MED_PLAN_STATUS_LABELS = {
+  active: 'Aktif',
+  stopped: 'Dihentikan',
+}
 
 function rubberBandDistance(offset, dimension) {
   if (offset <= 0) return 0
 
   const constant = 0.55
   return (offset * constant * dimension) / (dimension + constant * offset)
+}
+
+function getTypeConfig(type) {
+  return TYPE_CONFIG[type] || { emoji: '📌', label: 'Catatan' }
+}
+
+function unpackStoredNotes(storedNotes) {
+  const value = typeof storedNotes === 'string' ? storedNotes : ''
+
+  if (!value.startsWith(NOTE_META_PREFIX)) {
+    return { notes: value, meta: {} }
+  }
+
+  const payload = value.slice(NOTE_META_PREFIX.length)
+  const newlineIndex = payload.indexOf('\n')
+  const metaText = newlineIndex === -1 ? payload : payload.slice(0, newlineIndex)
+  const noteText = newlineIndex === -1 ? '' : payload.slice(newlineIndex + 1)
+
+  try {
+    const meta = JSON.parse(metaText)
+    return {
+      notes: noteText.trim(),
+      meta: meta && typeof meta === 'object' ? meta : {},
+    }
+  } catch {
+    return { notes: value, meta: {} }
+  }
+}
+
+function packStoredNotes(notes, meta) {
+  const cleanNotes = typeof notes === 'string' ? notes.trim() : ''
+  const cleanMeta =
+    meta && typeof meta === 'object'
+      ? Object.fromEntries(
+          Object.entries(meta).filter(([, value]) => value !== undefined)
+        )
+      : {}
+
+  if (Object.keys(cleanMeta).length === 0) return cleanNotes
+
+  const packedMeta = `${NOTE_META_PREFIX}${JSON.stringify(cleanMeta)}`
+  return cleanNotes ? `${packedMeta}\n${cleanNotes}` : packedMeta
+}
+
+function normalizeLog(log) {
+  const { notes, meta } = unpackStoredNotes(log.notes)
+  return { ...log, notes, meta }
+}
+
+function serializeLog(log) {
+  const { meta, notes, ...rest } = log
+  return {
+    ...rest,
+    notes: packStoredNotes(notes, meta),
+  }
+}
+
+function getGlucoseTargetHigh(context) {
+  if (context === 'after_meal') return 180
+  if (context === 'random') return 180
+  if (context === 'bedtime') return 180
+  return 130
+}
+
+function getGlucoseSeverity(reading, context) {
+  const value = Number(reading)
+
+  if (!Number.isFinite(value)) return 'unknown'
+  if (value < 70) return 'urgent-low'
+  if (value < 80) return 'low'
+  if (value >= 250) return 'urgent-high'
+  if (value > getGlucoseTargetHigh(context)) return 'high'
+  return 'ok'
+}
+
+function getGlucoseUi(severity) {
+  if (severity === 'unknown') {
+    return {
+      badge: 'bg-gray-100 text-gray-600',
+      accent: 'from-gray-50 to-slate-100 border-gray-200',
+      label: 'Belum ada data',
+    }
+  }
+
+  if (severity === 'urgent-low') {
+    return {
+      badge: 'bg-red-100 text-red-700',
+      accent: 'from-red-50 to-rose-100 border-red-200',
+      label: 'Terlalu rendah',
+    }
+  }
+
+  if (severity === 'low') {
+    return {
+      badge: 'bg-amber-100 text-amber-700',
+      accent: 'from-amber-50 to-yellow-100 border-amber-200',
+      label: 'Sedikit rendah',
+    }
+  }
+
+  if (severity === 'urgent-high') {
+    return {
+      badge: 'bg-red-100 text-red-700',
+      accent: 'from-red-50 to-orange-100 border-red-200',
+      label: 'Terlalu tinggi',
+    }
+  }
+
+  if (severity === 'high') {
+    return {
+      badge: 'bg-amber-100 text-amber-700',
+      accent: 'from-amber-50 to-orange-100 border-amber-200',
+      label: 'Di atas target',
+    }
+  }
+
+  return {
+    badge: 'bg-emerald-100 text-emerald-700',
+    accent: 'from-emerald-50 to-teal-100 border-emerald-200',
+    label: 'Dalam target',
+  }
+}
+
+function getMedicationPlanDisplay(meta = {}) {
+  const frequencyText = MED_PLAN_FREQUENCY_LABELS[meta.frequency] || null
+  const statusText = MED_PLAN_STATUS_LABELS[meta.planStatus] || 'Aktif'
+
+  return {
+    medicationName: meta.medicationName || 'Obat tanpa nama',
+    dosageText: meta.dosageText || 'Dosis belum diisi',
+    prescribedBy: meta.prescribedBy || '',
+    scheduleText: meta.scheduleText || '',
+    frequencyText,
+    statusText,
+  }
+}
+
+function getActiveMedicationPlans(logs) {
+  const latestByMedication = new Map()
+
+  const sortedPlans = [...logs]
+    .filter(log => log.type === 'med_plan')
+    .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
+
+  sortedPlans.forEach(log => {
+    const key = (log.meta?.medicationName || log.summary || '')
+      .trim()
+      .toLowerCase()
+
+    if (!key || latestByMedication.has(key)) return
+    latestByMedication.set(key, log)
+  })
+
+  return [...latestByMedication.values()].filter(
+    log => (log.meta?.planStatus || 'active') === 'active'
+  )
+}
+
+function formatLogMetaDescription(log) {
+  const meta = log.meta || {}
+
+  if (log.type === 'glucose') {
+    const symptoms = Array.isArray(meta.symptoms)
+      ? meta.symptoms
+          .map(symptom => GLUCOSE_SYMPTOM_LABELS[symptom])
+          .filter(Boolean)
+      : []
+
+    if (symptoms.length === 0) return ''
+    return `Keluhan: ${symptoms.join(', ')}`
+  }
+
+  if (log.type === 'med_plan') {
+    const display = getMedicationPlanDisplay(meta)
+    return [display.prescribedBy && `👨‍⚕️ ${display.prescribedBy}`, display.scheduleText && `🕒 ${display.scheduleText}`]
+      .filter(Boolean)
+      .join(' · ')
+  }
+
+  return ''
 }
 
 /* ============================================================
@@ -183,11 +446,11 @@ async function loadLogs() {
     return []
   }
 
-  return data || []
+  return (data || []).map(normalizeLog)
 }
 
 async function saveLog(log) {
-  const { error } = await supabase.from('logs').upsert(log)
+  const { error } = await supabase.from('logs').upsert(serializeLog(log))
 
   if (error) {
     console.error('Failed to save log:', error)
@@ -392,6 +655,39 @@ function OptionGroup({ options, selected, onSelect, cols = 2 }) {
   )
 }
 
+function ToggleChipGroup({ options, selectedIds, onToggle, color = 'sky' }) {
+  const activeClassMap = {
+    sky: 'bg-sky-500 text-white border-sky-500',
+    rose: 'bg-rose-500 text-white border-rose-500',
+    purple: 'bg-purple-500 text-white border-purple-500',
+    red: 'bg-red-500 text-white border-red-500',
+  }
+
+  const activeClass = activeClassMap[color] || activeClassMap.sky
+
+  return (
+    <div className="flex flex-wrap gap-2 mb-6">
+      {options.map(opt => {
+        const selected = selectedIds.includes(opt.id)
+
+        return (
+          <button
+            key={opt.id}
+            onClick={() => onToggle(opt.id)}
+            className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${
+              selected
+                ? activeClass
+                : 'bg-white text-gray-600 border-gray-200'
+            }`}
+          >
+            {opt.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function SaveButton({ canSave, onSave, saving = false }) {
   return (
     <button
@@ -416,17 +712,10 @@ function SaveButton({ canSave, onSave, saving = false }) {
  */
 
 function DeleteConfirmModal({ log, onConfirm, onCancel, deleting = false }) {
-  const icons = {
-    drink: '💧',
-    meal: '🍽️',
-    med: '💊',
-    wound: '🩹',
-  }
-
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-6">
       <div className="bg-white rounded-3xl p-6 w-full max-w-sm">
-        <p className="text-5xl text-center mb-4">{icons[log.type]}</p>
+        <p className="text-5xl text-center mb-4">{getTypeConfig(log.type).emoji}</p>
 
         <h3 className="text-xl font-bold text-gray-800 text-center mb-2">
           Hapus catatan ini?
@@ -595,15 +884,6 @@ function MedModal({ onClose, onSave, saving = false }) {
   const [status, setStatus] = useState(null)
   const [notes, setNotes] = useState('')
 
-  const presets = [
-    'Metformin',
-    'Glibenclamide',
-    'Glimepiride',
-    'Insulin',
-    'Acarbose',
-    'Vitamin B12',
-  ]
-
   const statuses = [
     { id: 'taken', label: '✅ Sudah Minum' },
     { id: 'skipped', label: '❌ Tidak Minum' },
@@ -617,7 +897,7 @@ function MedModal({ onClose, onSave, saving = false }) {
       <p className="text-gray-500 text-lg mb-3">Obat apa?</p>
 
       <div className="flex flex-wrap gap-2 mb-4">
-        {presets.map(preset => (
+        {MEDICATION_PRESETS.map(preset => (
           <button
             key={preset}
             onClick={() => {
@@ -671,6 +951,214 @@ function MedModal({ onClose, onSave, saving = false }) {
         canSave={canSave}
         saving={saving}
         onSave={() => onSave({ medName, status, notes })}
+      />
+    </ModalShell>
+  )
+}
+
+function GlucoseModal({ onClose, onSave, saving = false }) {
+  const [reading, setReading] = useState('')
+  const [context, setContext] = useState(null)
+  const [symptoms, setSymptoms] = useState([])
+  const [notes, setNotes] = useState('')
+
+  function toggleSymptom(id) {
+    setSymptoms(prev => {
+      if (id === 'none') {
+        return prev.includes('none') ? [] : ['none']
+      }
+
+      const next = prev.filter(item => item !== 'none')
+      return next.includes(id)
+        ? next.filter(item => item !== id)
+        : [...next, id]
+    })
+  }
+
+  const canSave = Number(reading) > 0 && context
+
+  return (
+    <ModalShell onClose={onClose} title="🩸 Catat Gula Darah">
+      <p className="text-gray-500 text-lg mb-3">Hasil berapa mg/dL?</p>
+      <div className="mb-6">
+        <div className="relative">
+          <input
+            type="number"
+            inputMode="numeric"
+            min="1"
+            value={reading}
+            onChange={e => setReading(e.target.value)}
+            placeholder="Contoh: 128"
+            className="w-full border-2 border-gray-200 rounded-2xl p-4 pr-24 text-2xl font-bold text-gray-700 focus:outline-none focus:border-red-400"
+          />
+          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
+            mg/dL
+          </span>
+        </div>
+      </div>
+
+      <p className="text-gray-500 text-lg mb-3">Cek kapan?</p>
+      <OptionGroup
+        options={GLUCOSE_CONTEXT_OPTIONS}
+        selected={context}
+        onSelect={setContext}
+        cols={1}
+      />
+
+      <p className="text-gray-500 text-lg mb-3">
+        Ada keluhan? <span className="text-sm">(boleh pilih lebih dari satu)</span>
+      </p>
+      <ToggleChipGroup
+        options={GLUCOSE_SYMPTOM_OPTIONS}
+        selectedIds={symptoms}
+        onToggle={toggleSymptom}
+        color="red"
+      />
+
+      <NotesField value={notes} onChange={setNotes} />
+
+      <SaveButton
+        canSave={canSave}
+        saving={saving}
+        onSave={() =>
+          onSave({
+            reading,
+            context,
+            symptoms,
+            notes,
+          })
+        }
+      />
+    </ModalShell>
+  )
+}
+
+function MedicationPlanModal({ onClose, onSave, saving = false }) {
+  const [medicationName, setMedicationName] = useState('')
+  const [isOther, setIsOther] = useState(false)
+  const [dosageText, setDosageText] = useState('')
+  const [prescribedBy, setPrescribedBy] = useState('')
+  const [frequency, setFrequency] = useState(null)
+  const [scheduleText, setScheduleText] = useState('')
+  const [planStatus, setPlanStatus] = useState('active')
+  const [notes, setNotes] = useState('')
+
+  const canSave =
+    medicationName.trim().length > 0 &&
+    dosageText.trim().length > 0 &&
+    prescribedBy.trim().length > 0 &&
+    (planStatus === 'stopped' || (frequency && scheduleText.trim().length > 0))
+
+  return (
+    <ModalShell onClose={onClose} title="🗓️ Atur Jadwal Obat">
+      <p className="text-gray-500 text-lg mb-3">Obat yang diresepkan?</p>
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        {MEDICATION_PRESETS.map(preset => (
+          <button
+            key={preset}
+            onClick={() => {
+              setMedicationName(preset)
+              setIsOther(false)
+            }}
+            className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${
+              medicationName === preset && !isOther
+                ? 'bg-purple-500 text-white border-purple-500'
+                : 'bg-white text-gray-600 border-gray-200'
+            }`}
+          >
+            {preset}
+          </button>
+        ))}
+
+        <button
+          onClick={() => {
+            setMedicationName('')
+            setIsOther(true)
+          }}
+          className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${
+            isOther
+              ? 'bg-purple-500 text-white border-purple-500'
+              : 'bg-white text-gray-600 border-gray-200'
+          }`}
+        >
+          ✏️ Obat Lainnya
+        </button>
+      </div>
+
+      {isOther && (
+        <input
+          type="text"
+          value={medicationName}
+          onChange={e => setMedicationName(e.target.value)}
+          placeholder="Nama obat..."
+          className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-purple-400 mb-6"
+        />
+      )}
+
+      <p className="text-gray-500 text-lg mb-3">Dosis yang diresepkan?</p>
+      <input
+        type="text"
+        value={dosageText}
+        onChange={e => setDosageText(e.target.value)}
+        placeholder="Contoh: 500 mg atau 10 unit"
+        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-purple-400 mb-6"
+      />
+
+      <p className="text-gray-500 text-lg mb-3">Diresepkan oleh siapa?</p>
+      <input
+        type="text"
+        value={prescribedBy}
+        onChange={e => setPrescribedBy(e.target.value)}
+        placeholder="Contoh: dr. Andi, Sp.PD"
+        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-purple-400 mb-6"
+      />
+
+      <p className="text-gray-500 text-lg mb-3">Status resep saat ini?</p>
+      <OptionGroup
+        options={MED_PLAN_STATUS_OPTIONS}
+        selected={planStatus}
+        onSelect={setPlanStatus}
+        cols={1}
+      />
+
+      {planStatus === 'active' ? (
+        <>
+          <p className="text-gray-500 text-lg mb-3">Seberapa sering diminum?</p>
+          <OptionGroup
+            options={MED_PLAN_FREQUENCY_OPTIONS}
+            selected={frequency}
+            onSelect={setFrequency}
+            cols={2}
+          />
+
+          <p className="text-gray-500 text-lg mb-3">Kapan diminum?</p>
+          <textarea
+            value={scheduleText}
+            onChange={e => setScheduleText(e.target.value)}
+            placeholder="Contoh: Sesudah sarapan jam 07:00 dan sesudah makan malam jam 19:00"
+            rows={3}
+            className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 resize-none focus:outline-none focus:border-purple-400 mb-6"
+          />
+        </>
+      ) : null}
+
+      <NotesField value={notes} onChange={setNotes} />
+
+      <SaveButton
+        canSave={canSave}
+        saving={saving}
+        onSave={() =>
+          onSave({
+            medicationName,
+            dosageText,
+            prescribedBy,
+            frequency,
+            scheduleText,
+            planStatus,
+            notes,
+          })
+        }
       />
     </ModalShell>
   )
@@ -854,6 +1342,153 @@ function DrinkCard({ logs, onAdd }) {
   )
 }
 
+function GlucoseCard({ logs, onAdd }) {
+  const todayGlucoseLogs = logs
+    .filter(log => log.type === 'glucose' && log.date === today())
+    .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
+
+  const latestToday = todayGlucoseLogs[0] || null
+  const latestMeta = latestToday?.meta || {}
+  const reading = Number(latestMeta.readingMgDl)
+  const severity = getGlucoseSeverity(reading, latestMeta.context)
+  const ui = getGlucoseUi(severity)
+
+  return (
+    <div
+      className={`bg-gradient-to-br ${ui.accent} border rounded-3xl p-5 mb-4 shadow-sm`}
+    >
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <p className="text-gray-500 text-sm font-medium uppercase tracking-wide">
+            Gula Darah Hari Ini
+          </p>
+
+          {latestToday ? (
+            <>
+              <p className="text-4xl font-black text-gray-800 mt-1">
+                {reading} <span className="text-xl font-bold text-gray-500">mg/dL</span>
+              </p>
+              <p className="text-gray-500 mt-1">
+                {GLUCOSE_CONTEXT_LABELS[latestMeta.context] || 'Cek gula'}
+                {' · '}
+                {latestToday.time}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-2xl font-black text-gray-800 mt-1">
+                Belum dicek
+              </p>
+              <p className="text-gray-500 mt-1">
+                Catat hasil cek gula darah supaya keluarga bisa ikut memantau.
+              </p>
+            </>
+          )}
+        </div>
+
+        <span className="text-4xl">🩸</span>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <span className={`px-3 py-1 rounded-full text-sm font-semibold ${ui.badge}`}>
+          {latestToday ? ui.label : 'Belum ada data hari ini'}
+        </span>
+
+        <span className="text-sm text-gray-500">
+          {todayGlucoseLogs.length}x cek hari ini
+        </span>
+      </div>
+
+      <button
+        onClick={onAdd}
+        className="w-full bg-white/75 hover:bg-white active:bg-white/90 border border-white rounded-2xl py-3 text-lg font-semibold text-gray-700 transition-all"
+      >
+        + Catat Gula Darah
+      </button>
+    </div>
+  )
+}
+
+function MedicationPlanCard({ logs, onAdd }) {
+  const activePlans = getActiveMedicationPlans(logs)
+
+  return (
+    <div className="bg-white rounded-3xl p-5 shadow-sm border border-purple-100 mb-6">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <p className="text-gray-500 text-sm font-medium uppercase tracking-wide">
+            Resep Obat Saat Ini
+          </p>
+          <h3 className="text-2xl font-black text-gray-800 mt-1">
+            Jadwal Obat
+          </h3>
+        </div>
+
+        <span className="text-4xl">🗓️</span>
+      </div>
+
+      {activePlans.length === 0 ? (
+        <div className="bg-purple-50 border border-purple-100 rounded-2xl p-4 mb-4">
+          <p className="font-semibold text-gray-800 mb-1">
+            Belum ada resep aktif
+          </p>
+          <p className="text-gray-500">
+            Simpan obat yang sedang diresepkan dokter, dosisnya, dan kapan harus diminum.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3 mb-4">
+          {activePlans.map(plan => {
+            const display = getMedicationPlanDisplay(plan.meta)
+
+            return (
+              <div
+                key={plan.id}
+                className="bg-purple-50 border border-purple-100 rounded-2xl p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-gray-800">
+                      {display.medicationName}
+                    </p>
+                    <p className="text-gray-500 text-sm">
+                      {display.dosageText}
+                      {display.frequencyText ? ` · ${display.frequencyText}` : ''}
+                    </p>
+                  </div>
+
+                  <span className="bg-white text-purple-700 text-xs font-semibold px-3 py-1 rounded-full">
+                    {display.statusText}
+                  </span>
+                </div>
+
+                {display.scheduleText ? (
+                  <p className="text-gray-600 text-sm mt-2">🕒 {display.scheduleText}</p>
+                ) : null}
+
+                {display.prescribedBy ? (
+                  <p className="text-gray-500 text-sm mt-1">👨‍⚕️ {display.prescribedBy}</p>
+                ) : null}
+
+                {plan.notes ? (
+                  <p className="text-gray-400 text-sm italic mt-1">📝 {plan.notes}</p>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <button
+        onClick={onAdd}
+        className="w-full bg-purple-50 hover:bg-purple-100 active:bg-purple-200 border border-purple-200 rounded-2xl py-3 text-lg font-semibold text-purple-700 transition-all"
+      >
+        + Atur Jadwal Obat
+      </button>
+    </div>
+  )
+}
+
 /* --------------------------- TodayTimeline -------------------------- */
 /**
  * Breakdown:
@@ -874,30 +1509,20 @@ function TodayTimeline({ logs, onDeleteRequest }) {
     )
   }
 
-  const icons = {
-    drink: '💧',
-    meal: '🍽️',
-    med: '💊',
-    wound: '🩹',
-  }
-
-  const labels = {
-    drink: 'Minum',
-    meal: 'Makan',
-    med: 'Obat',
-    wound: 'Luka',
-  }
-
   return (
     <div className="space-y-3">
       {todayLogs.map(log => (
         <div key={log.id} className="bg-white rounded-2xl p-4 shadow-sm">
           <div className="flex items-center gap-3">
-            <span className="text-3xl">{icons[log.type]}</span>
+            <span className="text-3xl">{getTypeConfig(log.type).emoji}</span>
 
             <div className="flex-1">
-              <p className="font-semibold text-gray-800">{labels[log.type]}</p>
+              <p className="font-semibold text-gray-800">{getTypeConfig(log.type).label}</p>
               <p className="text-gray-500 text-sm">{log.summary}</p>
+
+              {formatLogMetaDescription(log) ? (
+                <p className="text-gray-400 text-sm mt-1">{formatLogMetaDescription(log)}</p>
+              ) : null}
 
               {log.notes ? (
                 <p className="text-gray-400 text-sm italic mt-1">📝 {log.notes}</p>
@@ -936,20 +1561,6 @@ function TodayTimeline({ logs, onDeleteRequest }) {
  */
 
 function RekapScreen({ logs, onBack }) {
-  const icons = {
-    drink: '💧',
-    meal: '🍽️',
-    med: '💊',
-    wound: '🩹',
-  }
-
-  const labels = {
-    drink: 'Minum',
-    meal: 'Makan',
-    med: 'Obat',
-    wound: 'Luka',
-  }
-
   const grouped = useMemo(() => {
     return logs.reduce((acc, log) => {
       if (!acc[log.date]) acc[log.date] = []
@@ -982,6 +1593,7 @@ function RekapScreen({ logs, onBack }) {
 
     const mealCount = dayLogs.filter(l => l.type === 'meal').length
     const medCount = dayLogs.filter(l => l.type === 'med').length
+    const glucoseCount = dayLogs.filter(l => l.type === 'glucose').length
     const woundLog = dayLogs.find(l => l.type === 'wound')
 
     return (
@@ -1001,6 +1613,12 @@ function RekapScreen({ logs, onBack }) {
         {medCount > 0 && (
           <span className="bg-purple-100 text-purple-700 text-xs font-medium px-3 py-1 rounded-full">
             💊 {medCount}x obat
+          </span>
+        )}
+
+        {glucoseCount > 0 && (
+          <span className="bg-red-100 text-red-700 text-xs font-medium px-3 py-1 rounded-full">
+            🩸 {glucoseCount}x cek gula
           </span>
         )}
 
@@ -1052,11 +1670,17 @@ function RekapScreen({ logs, onBack }) {
           <div className="border-t border-gray-100 divide-y divide-gray-50">
             {sorted.map(log => (
               <div key={log.id} className="flex items-start gap-3 px-5 py-3">
-                <span className="text-2xl mt-0.5">{icons[log.type]}</span>
+                <span className="text-2xl mt-0.5">{getTypeConfig(log.type).emoji}</span>
 
                 <div className="flex-1">
-                  <p className="font-semibold text-gray-700">{labels[log.type]}</p>
+                  <p className="font-semibold text-gray-700">{getTypeConfig(log.type).label}</p>
                   <p className="text-gray-500 text-sm">{log.summary}</p>
+
+                  {formatLogMetaDescription(log) ? (
+                    <p className="text-gray-400 text-sm mt-0.5">
+                      {formatLogMetaDescription(log)}
+                    </p>
+                  ) : null}
 
                   {log.notes ? (
                     <p className="text-gray-400 text-sm italic mt-0.5">
@@ -1196,11 +1820,11 @@ export default function App() {
         { event: '*', schema: 'public', table: 'logs' },
         payload => {
           if (payload.eventType === 'INSERT') {
-            setLogs(prev => upsertLogInState(prev, payload.new))
+            setLogs(prev => upsertLogInState(prev, normalizeLog(payload.new)))
           }
 
           if (payload.eventType === 'UPDATE') {
-            setLogs(prev => upsertLogInState(prev, payload.new))
+            setLogs(prev => upsertLogInState(prev, normalizeLog(payload.new)))
           }
 
           if (payload.eventType === 'DELETE') {
@@ -1499,6 +2123,63 @@ export default function App() {
     setModal(null)
   }
 
+  function handleGlucoseSave({ reading, context, symptoms, notes }) {
+    const readingMgDl = Number(reading)
+    const severity = getGlucoseSeverity(readingMgDl, context)
+
+    addLog({
+      type: 'glucose',
+      notes,
+      summary: `${readingMgDl} mg/dL · ${
+        GLUCOSE_CONTEXT_LABELS[context] || 'Cek gula'
+      }`,
+      meta: {
+        schema: 'mamicare-care-v1',
+        readingMgDl,
+        context,
+        symptoms,
+        severity,
+      },
+    })
+
+    setModal(null)
+  }
+
+  function handleMedicationPlanSave({
+    medicationName,
+    dosageText,
+    prescribedBy,
+    frequency,
+    scheduleText,
+    planStatus,
+    notes,
+  }) {
+    const frequencyText = MED_PLAN_FREQUENCY_LABELS[frequency]
+    const summary =
+      planStatus === 'stopped'
+        ? `${medicationName} · Dihentikan`
+        : `${medicationName} · ${dosageText}${
+            frequencyText ? ` · ${frequencyText}` : ''
+          }`
+
+    addLog({
+      type: 'med_plan',
+      notes,
+      summary,
+      meta: {
+        schema: 'mamicare-care-v1',
+        medicationName,
+        dosageText,
+        prescribedBy,
+        frequency,
+        scheduleText,
+        planStatus,
+      },
+    })
+
+    setModal(null)
+  }
+
   function handleWoundSave({
     condition,
     appearance,
@@ -1686,8 +2367,9 @@ export default function App() {
             }}
           >
             <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
+            <GlucoseCard logs={logs} onAdd={() => setModal('glucose')} />
 
-            <div className="grid grid-cols-3 gap-3 mb-6">
+            <div className="grid grid-cols-2 gap-3 mb-6">
               {[
                 {
                   id: 'meal',
@@ -1707,6 +2389,12 @@ export default function App() {
                   label: 'Luka',
                   color: 'bg-rose-50 border-rose-300 text-rose-600',
                 },
+                {
+                  id: 'glucose',
+                  emoji: '🩸',
+                  label: 'Gula Darah',
+                  color: 'bg-red-50 border-red-300 text-red-600',
+                },
               ].map(btn => (
                 <button
                   key={btn.id}
@@ -1718,6 +2406,8 @@ export default function App() {
                 </button>
               ))}
             </div>
+
+            <MedicationPlanCard logs={logs} onAdd={() => setModal('med_plan')} />
 
             <h2 className="text-lg font-bold text-gray-700 mb-3">Catatan Hari Ini</h2>
             <TodayTimeline logs={logs} onDeleteRequest={setDeleteTarget} />
@@ -1746,6 +2436,22 @@ export default function App() {
         <MedModal
           onClose={() => setModal(null)}
           onSave={handleMedSave}
+          saving={saving}
+        />
+      )}
+
+      {modal === 'glucose' && (
+        <GlucoseModal
+          onClose={() => setModal(null)}
+          onSave={handleGlucoseSave}
+          saving={saving}
+        />
+      )}
+
+      {modal === 'med_plan' && (
+        <MedicationPlanModal
+          onClose={() => setModal(null)}
+          onSave={handleMedicationPlanSave}
           saving={saving}
         />
       )}

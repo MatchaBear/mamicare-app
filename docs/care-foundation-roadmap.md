@@ -59,6 +59,7 @@ Goal: capture the most clinically useful home signals without making the app har
 Features:
 
 - blood glucose logging
+- prescribed medication schedule with doctor, dose, and timing
 - wound red-flag checklist
 - doctor instruction ledger
 - better daily summary cards
@@ -492,12 +493,15 @@ Recommended architecture:
 Build this first before bigger visual redesigns:
 
 1. add `glucose` log type
-2. add `payload`, `severity`, `is_red_flag` support
-3. create `GlucoseModal`
-4. add glucose quick action on home
-5. add glucose card on timeline
-6. add daily glucose summary on recap
-7. add settings for target range defaults
+2. add `med_plan` log type for current prescribed medicines
+3. add `payload`, `severity`, `is_red_flag` support
+4. create `GlucoseModal`
+5. create prescribed medication schedule flow
+6. add glucose quick action on home
+7. add glucose card on timeline
+8. add active medication schedule card on home
+9. add daily glucose summary on recap
+10. add settings for target range defaults
 
 This slice is high-value because it improves care immediately while keeping the UI recognizable.
 
