@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { RefreshCw, X } from 'lucide-react'
+import { CalendarDays, Clock3, RefreshCw, X } from 'lucide-react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import { supabase } from './supabase'
 
@@ -72,13 +72,35 @@ import { supabase } from './supabase'
  * ============================================================
  */
 
-const today = () => new Date().toISOString().split('T')[0]
+function toDateInputValue(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const today = () => toDateInputValue(new Date())
 
 const nowTime = () =>
   new Date().toLocaleTimeString('id-ID', {
     hour: '2-digit',
     minute: '2-digit',
   })
+
+function nowInputTime() {
+  const now = new Date()
+  const hours = String(now.getHours()).padStart(2, '0')
+  const minutes = String(now.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+function buildTimestampFromDateTime(dateStr, timeStr) {
+  const safeDate = dateStr || today()
+  const safeTime = timeStr || nowInputTime()
+  const parsed = new Date(`${safeDate}T${safeTime}:00`)
+  const timestamp = parsed.getTime()
+  return Number.isFinite(timestamp) ? timestamp : Date.now()
+}
 
 function generateId() {
   const base = Date.now() * 4096
@@ -413,6 +435,7 @@ function getActiveMedicationPlans(logs) {
 
 function formatLogMetaDescription(log) {
   const meta = log.meta || {}
+  const parts = []
 
   if (log.type === 'glucose') {
     const symptoms = Array.isArray(meta.symptoms)
@@ -421,18 +444,22 @@ function formatLogMetaDescription(log) {
           .filter(Boolean)
       : []
 
-    if (symptoms.length === 0) return ''
-    return `Keluhan: ${symptoms.join(', ')}`
+    if (symptoms.length > 0) {
+      parts.push(`Keluhan: ${symptoms.join(', ')}`)
+    }
   }
 
   if (log.type === 'med_plan') {
     const display = getMedicationPlanDisplay(meta)
-    return [display.prescribedBy && `👨‍⚕️ ${display.prescribedBy}`, display.scheduleText && `🕒 ${display.scheduleText}`]
-      .filter(Boolean)
-      .join(' · ')
+    if (display.prescribedBy) parts.push(`👨‍⚕️ ${display.prescribedBy}`)
+    if (display.scheduleText) parts.push(`🕒 ${display.scheduleText}`)
   }
 
-  return ''
+  if (meta.lateEntryReason) {
+    parts.push(`🗓️ Ditambah belakangan: ${meta.lateEntryReason}`)
+  }
+
+  return parts.join(' · ')
 }
 
 /* ============================================================
@@ -606,6 +633,71 @@ function NotesField({ value, onChange }) {
         rows={3}
         className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 resize-none focus:outline-none focus:border-sky-400"
       />
+    </div>
+  )
+}
+
+function EntryTimingFields({
+  dateValue,
+  timeValue,
+  onDateChange,
+  onTimeChange,
+  lateReason,
+  onLateReasonChange,
+}) {
+  return (
+    <div className="mb-6 bg-sky-50/70 border border-sky-100 rounded-2xl p-4">
+      <div className="flex items-start gap-3 mb-4">
+        <div className="w-10 h-10 shrink-0 rounded-2xl bg-white border border-sky-100 flex items-center justify-center shadow-sm">
+          <CalendarDays size={18} className="text-sky-500" />
+        </div>
+
+        <div>
+          <p className="text-gray-700 font-semibold">Kapan ini terjadi?</p>
+          <p className="text-gray-500 text-sm leading-relaxed">
+            Bisa dipakai kalau catatan baru sempat diisi belakangan.
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <label className="block">
+          <p className="text-gray-500 text-sm mb-2">Tanggal</p>
+          <input
+            type="date"
+            value={dateValue}
+            onChange={e => onDateChange(e.target.value)}
+            max={today()}
+            className="w-full border-2 border-gray-200 rounded-2xl px-4 py-3 text-base text-gray-700 focus:outline-none focus:border-sky-400 bg-white"
+          />
+        </label>
+
+        <label className="block">
+          <div className="flex items-center gap-2 mb-2">
+            <Clock3 size={16} className="text-gray-400" />
+            <p className="text-gray-500 text-sm">Jam</p>
+          </div>
+          <input
+            type="time"
+            value={timeValue}
+            onChange={e => onTimeChange(e.target.value)}
+            className="w-full border-2 border-gray-200 rounded-2xl px-4 py-3 text-base text-gray-700 focus:outline-none focus:border-sky-400 bg-white"
+          />
+        </label>
+      </div>
+
+      <label className="block">
+        <p className="text-gray-500 text-sm mb-2">
+          Kenapa baru dicatat sekarang? <span className="text-gray-400">(opsional)</span>
+        </p>
+        <input
+          type="text"
+          value={lateReason}
+          onChange={e => onLateReasonChange(e.target.value)}
+          placeholder="Contoh: baru sempat diinput malam hari"
+          className="w-full border-2 border-gray-200 rounded-2xl px-4 py-3 text-base text-gray-700 focus:outline-none focus:border-sky-400 bg-white"
+        />
+      </label>
     </div>
   )
 }
@@ -818,6 +910,9 @@ function DrinkModal({ onClose, onSave, saving = false }) {
   const [drinkKind, setDrinkKind] = useState(null)
   const [amount, setAmount] = useState(null)
   const [notes, setNotes] = useState('')
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
 
   const drinkTypes = [
     { id: 'water', label: '💧 Air Putih' },
@@ -850,12 +945,30 @@ function DrinkModal({ onClose, onSave, saving = false }) {
         cols={3}
       />
 
+      <EntryTimingFields
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+      />
+
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
         canSave={drinkKind && amount}
         saving={saving}
-        onSave={() => onSave({ type: drinkKind, amount, notes })}
+        onSave={() =>
+          onSave({
+            type: drinkKind,
+            amount,
+            notes,
+            entryDate,
+            entryTime,
+            lateReason,
+          })
+        }
       />
     </ModalShell>
   )
@@ -872,6 +985,9 @@ function MealModal({ onClose, onSave, saving = false }) {
   const [foodText, setFoodText] = useState('')
   const [portion, setPortion] = useState(null)
   const [notes, setNotes] = useState('')
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
 
   const mealTypes = [
     { id: 'breakfast', label: '🌅 Sarapan' },
@@ -915,12 +1031,31 @@ function MealModal({ onClose, onSave, saving = false }) {
         cols={3}
       />
 
+      <EntryTimingFields
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+      />
+
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
         canSave={canSave}
         saving={saving}
-        onSave={() => onSave({ mealType, foodText, portion, notes })}
+        onSave={() =>
+          onSave({
+            mealType,
+            foodText,
+            portion,
+            notes,
+            entryDate,
+            entryTime,
+            lateReason,
+          })
+        }
       />
     </ModalShell>
   )
@@ -937,6 +1072,9 @@ function MedModal({ onClose, onSave, saving = false }) {
   const [isOther, setIsOther] = useState(false)
   const [status, setStatus] = useState(null)
   const [notes, setNotes] = useState('')
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
 
   const statuses = [
     { id: 'taken', label: '✅ Sudah Minum' },
@@ -999,12 +1137,30 @@ function MedModal({ onClose, onSave, saving = false }) {
         cols={1}
       />
 
+      <EntryTimingFields
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+      />
+
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
         canSave={canSave}
         saving={saving}
-        onSave={() => onSave({ medName, status, notes })}
+        onSave={() =>
+          onSave({
+            medName,
+            status,
+            notes,
+            entryDate,
+            entryTime,
+            lateReason,
+          })
+        }
       />
     </ModalShell>
   )
@@ -1015,6 +1171,9 @@ function GlucoseModal({ onClose, onSave, saving = false }) {
   const [context, setContext] = useState(null)
   const [symptoms, setSymptoms] = useState([])
   const [notes, setNotes] = useState('')
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
 
   function toggleSymptom(id) {
     setSymptoms(prev => {
@@ -1069,6 +1228,15 @@ function GlucoseModal({ onClose, onSave, saving = false }) {
         color="red"
       />
 
+      <EntryTimingFields
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+      />
+
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
@@ -1080,6 +1248,9 @@ function GlucoseModal({ onClose, onSave, saving = false }) {
             context,
             symptoms,
             notes,
+            entryDate,
+            entryTime,
+            lateReason,
           })
         }
       />
@@ -1197,6 +1368,9 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
   const [scheduleText, setScheduleText] = useState('')
   const [planStatus, setPlanStatus] = useState('active')
   const [notes, setNotes] = useState('')
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
 
   const canSave =
     medicationName.trim().length > 0 &&
@@ -1298,6 +1472,15 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
         </>
       ) : null}
 
+      <EntryTimingFields
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+      />
+
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
@@ -1312,6 +1495,9 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
             scheduleText,
             planStatus,
             notes,
+            entryDate,
+            entryTime,
+            lateReason,
           })
         }
       />
@@ -1336,6 +1522,9 @@ function WoundModal({ onClose, onSave, saving = false }) {
   const [appearanceOther, setAppearanceOther] = useState('')
   const [dressingChanged, setDressingChanged] = useState(null)
   const [notes, setNotes] = useState('')
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
 
   const conditions = [
     { id: 'better', label: '😊 Lebih Baik' },
@@ -1420,6 +1609,15 @@ function WoundModal({ onClose, onSave, saving = false }) {
         ))}
       </div>
 
+      <EntryTimingFields
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+      />
+
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
@@ -1432,6 +1630,9 @@ function WoundModal({ onClose, onSave, saving = false }) {
             appearanceOther,
             dressingChanged,
             notes,
+            entryDate,
+            entryTime,
+            lateReason,
           })
         }
       />
@@ -1747,7 +1948,7 @@ function RekapScreen({ logs, onBack }) {
   function formatDate(dateStr) {
     const date = new Date(`${dateStr}T00:00:00`)
     const todayStr = today()
-    const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+    const yesterdayStr = toDateInputValue(new Date(Date.now() - 86400000))
 
     if (dateStr === todayStr) return 'Hari Ini'
     if (dateStr === yesterdayStr) return 'Kemarin'
@@ -2195,15 +2396,31 @@ export default function App() {
   /* ---------------- Actions ---------------- */
   async function addLog(entry) {
     const user = USERS.find(u => u.id === currentUser)
+    const {
+      entryDate,
+      entryTime,
+      lateReason,
+      meta: entryMeta,
+      ...restEntry
+    } = entry
+    const finalDate = entryDate || today()
+    const finalTime = entryTime || nowInputTime()
+    const finalTimestamp = buildTimestampFromDateTime(finalDate, finalTime)
 
     const newLog = {
       id: generateId(),
-      date: today(),
-      time: nowTime(),
-      timestamp: Date.now(),
+      date: finalDate,
+      time: finalTime,
+      timestamp: finalTimestamp,
       logged_by: user ? `${user.emoji} ${user.name}` : 'Unknown',
       device_info: getDeviceInfo(),
-      ...entry,
+      ...restEntry,
+      meta: {
+        ...(entryMeta || {}),
+        ...(lateReason?.trim()
+          ? { lateEntryReason: lateReason.trim() }
+          : {}),
+      },
     }
 
     setSaving(true)
@@ -2239,7 +2456,7 @@ export default function App() {
   }
 
   /* ---------------- Save handlers per modal ---------------- */
-  function handleDrinkSave({ type, amount, notes }) {
+  function handleDrinkSave({ type, amount, notes, ...timing }) {
     const typeLabels = {
       water: 'Air Putih',
       tea: 'Teh',
@@ -2252,12 +2469,13 @@ export default function App() {
       amount,
       notes,
       summary: `${typeLabels[type]} · ${amount} gelas`,
+      ...timing,
     })
 
     setModal(null)
   }
 
-  function handleMealSave({ mealType, foodText, portion, notes }) {
+  function handleMealSave({ mealType, foodText, portion, notes, ...timing }) {
     const mealLabels = {
       breakfast: 'Sarapan',
       lunch: 'Makan Siang',
@@ -2275,12 +2493,13 @@ export default function App() {
       type: 'meal',
       notes,
       summary: `${mealLabels[mealType]} · ${foodText} (${portionLabels[portion]})`,
+      ...timing,
     })
 
     setModal(null)
   }
 
-  function handleMedSave({ medName, status, notes }) {
+  function handleMedSave({ medName, status, notes, ...timing }) {
     const statusLabels = {
       taken: 'Sudah diminum',
       skipped: 'Tidak diminum',
@@ -2291,12 +2510,19 @@ export default function App() {
       type: 'med',
       notes,
       summary: `${medName} · ${statusLabels[status]}`,
+      ...timing,
     })
 
     setModal(null)
   }
 
-  function handleGlucoseSave({ reading, context, symptoms, notes }) {
+  function handleGlucoseSave({
+    reading,
+    context,
+    symptoms,
+    notes,
+    ...timing
+  }) {
     const readingMgDl = Number(reading)
     const severity = getGlucoseSeverity(
       readingMgDl,
@@ -2317,6 +2543,7 @@ export default function App() {
         symptoms,
         severity,
       },
+      ...timing,
     })
 
     setModal(null)
@@ -2351,6 +2578,7 @@ export default function App() {
     scheduleText,
     planStatus,
     notes,
+    ...timing
   }) {
     const frequencyText = MED_PLAN_FREQUENCY_LABELS[frequency]
     const summary =
@@ -2373,6 +2601,7 @@ export default function App() {
         scheduleText,
         planStatus,
       },
+      ...timing,
     })
 
     setModal(null)
@@ -2384,6 +2613,7 @@ export default function App() {
     appearanceOther,
     dressingChanged,
     notes,
+    ...timing
   }) {
     const conditionLabels = {
       better: 'Lebih Baik 😊',
@@ -2415,6 +2645,7 @@ export default function App() {
       dressing_changed: dressingChanged,
       summary: `${conditionLabels[condition]} · ${appearanceText} · Perban: ${dressingChanged ? 'Diganti' : 'Belum diganti'
         }`,
+      ...timing,
     })
 
     setModal(null)
