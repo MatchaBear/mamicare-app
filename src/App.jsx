@@ -1050,7 +1050,7 @@ function TimePickerPanel({ value, onChange, onClose }) {
       <div className="grid grid-cols-2 gap-3">
         <div className="rounded-2xl bg-gray-50 p-3">
           <p className="mb-3 text-center text-sm font-semibold text-gray-500">Jam</p>
-          <div className="grid max-h-44 grid-cols-4 gap-2 overflow-y-auto pr-1">
+          <div className="grid max-h-44 grid-cols-3 gap-2 overflow-y-auto pr-1">
             {hours.map(optionHour => {
               const selected = optionHour === hour
 
@@ -1074,7 +1074,7 @@ function TimePickerPanel({ value, onChange, onClose }) {
 
         <div className="rounded-2xl bg-gray-50 p-3">
           <p className="mb-3 text-center text-sm font-semibold text-gray-500">Menit</p>
-          <div className="grid max-h-44 grid-cols-4 gap-2 overflow-y-auto pr-1">
+          <div className="grid max-h-44 grid-cols-3 gap-2 overflow-y-auto pr-1">
             {minutes.map(optionMinute => {
               const selected = optionMinute === minute
 
