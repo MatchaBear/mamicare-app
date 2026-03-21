@@ -761,7 +761,7 @@ function EntryTimingFields({
       </label>
 
       {enabled ? (
-        <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
+        <div className="mt-3 overflow-hidden rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
           <p className="mb-3 text-sm text-gray-500">
             Isi waktu kejadian yang sebenarnya, lalu tambahkan alasan kenapa baru dicatat sekarang.
           </p>
@@ -772,13 +772,15 @@ function EntryTimingFields({
                 <CalendarDays size={16} className="text-sky-400" />
                 <p className="text-sm text-gray-500">Tanggal</p>
               </div>
-              <input
-                type="date"
-                value={dateValue}
-                onChange={e => onDateChange(e.target.value)}
-                max={today()}
-                className="w-full rounded-2xl border-2 border-gray-200 bg-white px-4 py-3 text-base text-gray-700 focus:border-sky-400 focus:outline-none"
-              />
+              <div className="w-full max-w-full overflow-hidden rounded-2xl border-2 border-gray-200 bg-white">
+                <input
+                  type="date"
+                  value={dateValue}
+                  onChange={e => onDateChange(e.target.value)}
+                  max={today()}
+                  className="block w-full min-w-0 max-w-full bg-transparent px-4 py-3 text-[16px] text-gray-700 focus:outline-none"
+                />
+              </div>
             </label>
 
             <label className="block">
@@ -786,12 +788,14 @@ function EntryTimingFields({
                 <Clock3 size={16} className="text-gray-400" />
                 <p className="text-sm text-gray-500">Jam</p>
               </div>
-              <input
-                type="time"
-                value={timeValue}
-                onChange={e => onTimeChange(e.target.value)}
-                className="w-full rounded-2xl border-2 border-gray-200 bg-white px-4 py-3 text-base text-gray-700 focus:border-sky-400 focus:outline-none"
-              />
+              <div className="w-full max-w-full overflow-hidden rounded-2xl border-2 border-gray-200 bg-white">
+                <input
+                  type="time"
+                  value={timeValue}
+                  onChange={e => onTimeChange(e.target.value)}
+                  className="block w-full min-w-0 max-w-full bg-transparent px-4 py-3 text-[16px] text-gray-700 focus:outline-none"
+                />
+              </div>
             </label>
           </div>
 
