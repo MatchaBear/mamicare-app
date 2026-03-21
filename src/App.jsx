@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { RefreshCw, X } from 'lucide-react'
+import {
+  CalendarDays,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  RefreshCw,
+  X,
+} from 'lucide-react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import { supabase } from './supabase'
 
@@ -20,8 +28,8 @@ import { supabase } from './supabase'
  * - UserPickerScreen: choose who is currently using the device
  * - UpdatePrompt: PWA new-version prompt
  * - ModalShell: shared bottom-sheet shell for all data-entry modals
- * - DrinkModal / MealModal / MedModal / WoundModal: form entry screens
- * - DrinkCard: today hydration progress
+ * - DrinkModal / MealModal / MedModal / GlucoseModal / MedicationPlanModal / WoundModal: form entry screens
+ * - DrinkCard / GlucoseCard / MedicationPlanCard: home summary cards
  * - TodayTimeline: today's logs
  * - RekapScreen: grouped history / archive screen
  * - App: state orchestration, Supabase sync, pull-to-refresh, screen routing
@@ -55,6 +63,12 @@ import { supabase } from './supabase'
  * 7. Cleaned up wording mismatch in wound form:
  *    - "Other appearance" text is now clearly optional in the UI and logic.
  *
+ * 8. Structured metadata compatibility layer:
+ *    - New care flows in this branch need more structure than `summary` text alone.
+ *    - To stay compatible with the current production `logs` table, structured fields
+ *      are packed into the existing `notes` column with a hidden metadata prefix.
+ *    - This keeps the branch shippable before a dedicated DB migration lands.
+ *
  * NOTE ABOUT DATABASE COMPATIBILITY
  * - I kept the saved payload compatible with your current code style.
  * - I did NOT add new DB columns here, because if your Supabase table doesn't
@@ -66,13 +80,166 @@ import { supabase } from './supabase'
  * ============================================================
  */
 
-const today = () => new Date().toISOString().split('T')[0]
+function toDateInputValue(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+const today = () => toDateInputValue(new Date())
 
 const nowTime = () =>
   new Date().toLocaleTimeString('id-ID', {
     hour: '2-digit',
     minute: '2-digit',
   })
+
+function nowInputTime() {
+  const now = new Date()
+  const hours = String(now.getHours()).padStart(2, '0')
+  const minutes = String(now.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+function buildTimestampFromDateTime(dateStr, timeStr) {
+  const safeDate = dateStr || today()
+  const safeTime = timeStr || nowInputTime()
+  const parsed = new Date(`${safeDate}T${safeTime}:00`)
+  const timestamp = parsed.getTime()
+  return Number.isFinite(timestamp) ? timestamp : Date.now()
+}
+
+function buildPastRecordPayload(isPastRecord, entryDate, entryTime, lateReason) {
+  if (!isPastRecord) return {}
+
+  return {
+    entryDate,
+    entryTime,
+    lateReason,
+  }
+}
+
+function getValidationMessages(errors) {
+  return [...new Set(Object.values(errors).filter(Boolean))]
+}
+
+function hasValidationErrors(errors) {
+  return getValidationMessages(errors).length > 0
+}
+
+function getFieldShellClass(hasError, focusClass = 'focus:border-sky-400') {
+  if (hasError) {
+    return 'border-red-300 bg-red-50/40 focus:border-red-400'
+  }
+
+  return `border-gray-200 bg-white ${focusClass}`
+}
+
+function pad2(value) {
+  return String(value).padStart(2, '0')
+}
+
+function parseDateInputValue(dateStr) {
+  if (typeof dateStr !== 'string') return null
+
+  const [year, month, day] = dateStr.split('-').map(Number)
+
+  if (!year || !month || !day) return null
+
+  const date = new Date(year, month - 1, day)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function parseTimeInputValue(timeStr) {
+  const fallback = nowInputTime()
+  const [fallbackHour, fallbackMinute] = fallback.split(':').map(Number)
+  const [rawHour, rawMinute] = typeof timeStr === 'string'
+    ? timeStr.split(':').map(Number)
+    : []
+
+  const hour =
+    Number.isInteger(rawHour) && rawHour >= 0 && rawHour <= 23
+      ? rawHour
+      : fallbackHour
+  const minute =
+    Number.isInteger(rawMinute) && rawMinute >= 0 && rawMinute <= 59
+      ? rawMinute
+      : fallbackMinute
+
+  return { hour, minute }
+}
+
+function toTimeValue(hour, minute) {
+  return `${pad2(hour)}:${pad2(minute)}`
+}
+
+function startOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
+function shiftMonth(date, amount) {
+  return new Date(date.getFullYear(), date.getMonth() + amount, 1)
+}
+
+function formatPickerDateValue(dateStr) {
+  const date = parseDateInputValue(dateStr)
+  if (!date) return 'Pilih tanggal'
+
+  return date.toLocaleDateString('id-ID', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function formatPickerTimeValue(timeStr) {
+  const { hour, minute } = parseTimeInputValue(timeStr)
+  return `${pad2(hour)}:${pad2(minute)}`
+}
+
+function formatPickerMonthLabel(date) {
+  return date.toLocaleDateString('id-ID', {
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+function getCalendarCells(viewMonth, maxDateStr) {
+  const firstDay = startOfMonth(viewMonth)
+  const daysInMonth = new Date(
+    viewMonth.getFullYear(),
+    viewMonth.getMonth() + 1,
+    0
+  ).getDate()
+  const maxDate = parseDateInputValue(maxDateStr)
+  const offset = (firstDay.getDay() + 6) % 7
+  const cells = []
+
+  for (let i = 0; i < offset; i += 1) {
+    cells.push({ type: 'empty', key: `empty-${i}` })
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), day)
+    const dateStr = toDateInputValue(date)
+    const isDisabled = maxDate ? date > maxDate : false
+
+    cells.push({
+      type: 'day',
+      key: dateStr,
+      day,
+      dateStr,
+      isDisabled,
+    })
+  }
+
+  while (cells.length % 7 !== 0) {
+    cells.push({ type: 'empty', key: `tail-${cells.length}` })
+  }
+
+  return cells
+}
 
 function generateId() {
   const base = Date.now() * 4096
@@ -110,12 +277,328 @@ const MIN_REFRESH_MS = 420
 const DRAG_ACTIVATION_PX = 8
 const AXIS_LOCK_RATIO = 1.15
 const RELEASE_ANIM_MS = 280
+const NOTE_META_PREFIX = '[[MC_META]]'
+
+const TYPE_CONFIG = {
+  drink: { emoji: '💧', label: 'Minum' },
+  meal: { emoji: '🍽️', label: 'Makan' },
+  med: { emoji: '💊', label: 'Obat' },
+  wound: { emoji: '🩹', label: 'Luka' },
+  glucose: { emoji: '🩸', label: 'Gula Darah' },
+  med_plan: { emoji: '🗓️', label: 'Jadwal Obat' },
+}
+
+const MEDICATION_PRESETS = [
+  'Metformin',
+  'Glibenclamide',
+  'Glimepiride',
+  'Insulin',
+  'Acarbose',
+  'Vitamin B12',
+]
+
+const GLUCOSE_CONTEXT_OPTIONS = [
+  { id: 'fasting', label: '🌅 Puasa' },
+  { id: 'before_meal', label: '🍽️ Sebelum Makan' },
+  { id: 'after_meal', label: '⏱️ 2 Jam Sesudah Makan' },
+  { id: 'bedtime', label: '🌙 Sebelum Tidur' },
+  { id: 'random', label: '🕒 Sewaktu' },
+]
+
+const GLUCOSE_CONTEXT_LABELS = {
+  fasting: 'Puasa',
+  before_meal: 'Sebelum makan',
+  after_meal: '2 jam sesudah makan',
+  bedtime: 'Sebelum tidur',
+  random: 'Sewaktu',
+}
+
+const GLUCOSE_SYMPTOM_OPTIONS = [
+  { id: 'weak', label: 'Lemas' },
+  { id: 'dizzy', label: 'Pusing' },
+  { id: 'shaky', label: 'Gemetar' },
+  { id: 'sweaty', label: 'Berkeringat' },
+  { id: 'nausea', label: 'Mual' },
+  { id: 'none', label: 'Tidak ada keluhan' },
+]
+
+const GLUCOSE_SYMPTOM_LABELS = {
+  weak: 'Lemas',
+  dizzy: 'Pusing',
+  shaky: 'Gemetar',
+  sweaty: 'Berkeringat',
+  nausea: 'Mual',
+  none: 'Tidak ada keluhan',
+}
+
+const MED_PLAN_FREQUENCY_OPTIONS = [
+  { id: 'once_daily', label: '1x sehari' },
+  { id: 'twice_daily', label: '2x sehari' },
+  { id: 'three_daily', label: '3x sehari' },
+  { id: 'as_needed', label: 'Sesuai perlu' },
+]
+
+const MED_PLAN_FREQUENCY_LABELS = {
+  once_daily: '1x sehari',
+  twice_daily: '2x sehari',
+  three_daily: '3x sehari',
+  as_needed: 'Sesuai perlu',
+}
+
+const MED_PLAN_STATUS_OPTIONS = [
+  { id: 'active', label: '✅ Aktif' },
+  { id: 'stopped', label: '⏸️ Dihentikan' },
+]
+
+const MED_PLAN_STATUS_LABELS = {
+  active: 'Aktif',
+  stopped: 'Dihentikan',
+}
+
+const DEFAULT_GLUCOSE_TARGETS = {
+  lowThreshold: 80,
+  preMealHigh: 130,
+  postMealHigh: 180,
+}
+
+const VISIBLE_LOG_TYPES = new Set([
+  'drink',
+  'meal',
+  'med',
+  'wound',
+  'glucose',
+  'med_plan',
+])
 
 function rubberBandDistance(offset, dimension) {
   if (offset <= 0) return 0
 
   const constant = 0.55
   return (offset * constant * dimension) / (dimension + constant * offset)
+}
+
+function getTypeConfig(type) {
+  return TYPE_CONFIG[type] || { emoji: '📌', label: 'Catatan' }
+}
+
+function isVisibleLogType(type) {
+  return VISIBLE_LOG_TYPES.has(type)
+}
+
+function unpackStoredNotes(storedNotes) {
+  const value = typeof storedNotes === 'string' ? storedNotes : ''
+
+  if (!value.startsWith(NOTE_META_PREFIX)) {
+    return { notes: value, meta: {} }
+  }
+
+  const payload = value.slice(NOTE_META_PREFIX.length)
+  const newlineIndex = payload.indexOf('\n')
+  const metaText = newlineIndex === -1 ? payload : payload.slice(0, newlineIndex)
+  const noteText = newlineIndex === -1 ? '' : payload.slice(newlineIndex + 1)
+
+  try {
+    const meta = JSON.parse(metaText)
+    return {
+      notes: noteText.trim(),
+      meta: meta && typeof meta === 'object' ? meta : {},
+    }
+  } catch {
+    return { notes: value, meta: {} }
+  }
+}
+
+function packStoredNotes(notes, meta) {
+  const cleanNotes = typeof notes === 'string' ? notes.trim() : ''
+  const cleanMeta =
+    meta && typeof meta === 'object'
+      ? Object.fromEntries(
+          Object.entries(meta).filter(([, value]) => value !== undefined)
+        )
+      : {}
+
+  if (Object.keys(cleanMeta).length === 0) return cleanNotes
+
+  const packedMeta = `${NOTE_META_PREFIX}${JSON.stringify(cleanMeta)}`
+  return cleanNotes ? `${packedMeta}\n${cleanNotes}` : packedMeta
+}
+
+function normalizeLog(log) {
+  const { notes, meta } = unpackStoredNotes(log.notes)
+  return { ...log, notes, meta }
+}
+
+function serializeLog(log) {
+  const { meta, notes, ...rest } = log
+  return {
+    ...rest,
+    notes: packStoredNotes(notes, meta),
+  }
+}
+
+function toPositiveNumber(value, fallback) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function getLatestGlucoseTarget(logs) {
+  return [...logs]
+    .filter(log => log.type === 'glucose_target')
+    .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))[0]
+}
+
+function getGlucoseTargets(logs) {
+  const latestTarget = getLatestGlucoseTarget(logs)
+  const meta = latestTarget?.meta || {}
+
+  return {
+    lowThreshold: toPositiveNumber(
+      meta.lowThreshold,
+      DEFAULT_GLUCOSE_TARGETS.lowThreshold
+    ),
+    preMealHigh: toPositiveNumber(
+      meta.preMealHigh,
+      DEFAULT_GLUCOSE_TARGETS.preMealHigh
+    ),
+    postMealHigh: toPositiveNumber(
+      meta.postMealHigh,
+      DEFAULT_GLUCOSE_TARGETS.postMealHigh
+    ),
+  }
+}
+
+function formatGlucoseTargetSummary(targets) {
+  return `${targets.lowThreshold}-${targets.preMealHigh} mg/dL sebelum makan · <${targets.postMealHigh} mg/dL sesudah makan`
+}
+
+function getGlucoseTargetHigh(context, targets = DEFAULT_GLUCOSE_TARGETS) {
+  if (context === 'after_meal') return targets.postMealHigh
+  if (context === 'random') return targets.postMealHigh
+  if (context === 'bedtime') return targets.postMealHigh
+  return targets.preMealHigh
+}
+
+function getGlucoseSeverity(reading, context, targets = DEFAULT_GLUCOSE_TARGETS) {
+  const value = Number(reading)
+
+  if (!Number.isFinite(value)) return 'unknown'
+  if (value < 70) return 'urgent-low'
+  if (value < targets.lowThreshold) return 'low'
+  if (value >= 250) return 'urgent-high'
+  if (value > getGlucoseTargetHigh(context, targets)) return 'high'
+  return 'ok'
+}
+
+function getGlucoseUi(severity) {
+  if (severity === 'unknown') {
+    return {
+      badge: 'bg-gray-100 text-gray-600',
+      accent: 'from-gray-50 to-slate-100 border-gray-200',
+      label: 'Belum ada data',
+    }
+  }
+
+  if (severity === 'urgent-low') {
+    return {
+      badge: 'bg-red-100 text-red-700',
+      accent: 'from-red-50 to-rose-100 border-red-200',
+      label: 'Terlalu rendah',
+    }
+  }
+
+  if (severity === 'low') {
+    return {
+      badge: 'bg-amber-100 text-amber-700',
+      accent: 'from-amber-50 to-yellow-100 border-amber-200',
+      label: 'Sedikit rendah',
+    }
+  }
+
+  if (severity === 'urgent-high') {
+    return {
+      badge: 'bg-red-100 text-red-700',
+      accent: 'from-red-50 to-orange-100 border-red-200',
+      label: 'Terlalu tinggi',
+    }
+  }
+
+  if (severity === 'high') {
+    return {
+      badge: 'bg-amber-100 text-amber-700',
+      accent: 'from-amber-50 to-orange-100 border-amber-200',
+      label: 'Di atas target',
+    }
+  }
+
+  return {
+    badge: 'bg-emerald-100 text-emerald-700',
+    accent: 'from-emerald-50 to-teal-100 border-emerald-200',
+    label: 'Dalam target',
+  }
+}
+
+function getMedicationPlanDisplay(meta = {}) {
+  const frequencyText = MED_PLAN_FREQUENCY_LABELS[meta.frequency] || null
+  const statusText = MED_PLAN_STATUS_LABELS[meta.planStatus] || 'Aktif'
+
+  return {
+    medicationName: meta.medicationName || 'Obat tanpa nama',
+    dosageText: meta.dosageText || 'Dosis belum diisi',
+    prescribedBy: meta.prescribedBy || '',
+    scheduleText: meta.scheduleText || '',
+    frequencyText,
+    statusText,
+  }
+}
+
+function getActiveMedicationPlans(logs) {
+  const latestByMedication = new Map()
+
+  const sortedPlans = [...logs]
+    .filter(log => log.type === 'med_plan')
+    .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
+
+  sortedPlans.forEach(log => {
+    const key = (log.meta?.medicationName || log.summary || '')
+      .trim()
+      .toLowerCase()
+
+    if (!key || latestByMedication.has(key)) return
+    latestByMedication.set(key, log)
+  })
+
+  return [...latestByMedication.values()].filter(
+    log => (log.meta?.planStatus || 'active') === 'active'
+  )
+}
+
+function formatLogMetaDescription(log) {
+  const meta = log.meta || {}
+  const parts = []
+
+  if (log.type === 'glucose') {
+    const symptoms = Array.isArray(meta.symptoms)
+      ? meta.symptoms
+          .map(symptom => GLUCOSE_SYMPTOM_LABELS[symptom])
+          .filter(Boolean)
+      : []
+
+    if (symptoms.length > 0) {
+      parts.push(`Keluhan: ${symptoms.join(', ')}`)
+    }
+  }
+
+  if (log.type === 'med_plan') {
+    const display = getMedicationPlanDisplay(meta)
+    if (display.prescribedBy) parts.push(`👨‍⚕️ ${display.prescribedBy}`)
+    if (display.scheduleText) parts.push(`🕒 ${display.scheduleText}`)
+  }
+
+  if (meta.lateEntryReason) {
+    parts.push(`🗓️ Ditambah belakangan: ${meta.lateEntryReason}`)
+  }
+
+  return parts.join(' · ')
 }
 
 /* ============================================================
@@ -183,11 +666,11 @@ async function loadLogs() {
     return []
   }
 
-  return data || []
+  return (data || []).map(normalizeLog)
 }
 
 async function saveLog(log) {
-  const { error } = await supabase.from('logs').upsert(log)
+  const { error } = await supabase.from('logs').upsert(serializeLog(log))
 
   if (error) {
     console.error('Failed to save log:', error)
@@ -293,6 +776,418 @@ function NotesField({ value, onChange }) {
   )
 }
 
+function FieldErrorText({ message, className = '' }) {
+  if (!message) return null
+
+  return (
+    <p className={`mt-2 text-sm font-semibold text-red-500 ${className}`.trim()}>
+      {message}
+    </p>
+  )
+}
+
+function PickerTriggerField({
+  label,
+  value,
+  icon,
+  tone = 'sky',
+  active = false,
+  onClick,
+}) {
+  const accentClass =
+    tone === 'sky'
+      ? 'text-sky-500 bg-sky-50'
+      : 'text-indigo-500 bg-indigo-50'
+  const activeClass =
+    tone === 'sky'
+      ? 'border-sky-300 ring-2 ring-sky-100'
+      : 'border-indigo-300 ring-2 ring-indigo-100'
+  const hoverClass = tone === 'sky' ? 'hover:border-sky-200' : 'hover:border-indigo-200'
+
+  return (
+    <div>
+      <p className="mb-2 text-sm text-gray-500">{label}</p>
+      <button
+        type="button"
+        onClick={onClick}
+        className={`w-full rounded-2xl border-2 bg-white px-3 py-3 shadow-sm transition-all ${
+          active
+            ? activeClass
+            : `border-gray-200 ${hoverClass}`
+        }`}
+      >
+        <span className="grid grid-cols-[32px_minmax(0,1fr)_32px] items-center gap-2">
+          <span className={`flex h-8 w-8 items-center justify-center rounded-xl ${accentClass} opacity-0`}>
+            {icon}
+          </span>
+
+          <span className="block truncate text-center text-base font-bold leading-none text-gray-800">
+            {value}
+          </span>
+
+          <span className={`flex h-8 w-8 items-center justify-center rounded-xl ${accentClass}`}>
+            {icon}
+          </span>
+        </span>
+      </button>
+    </div>
+  )
+}
+
+function DatePickerPanel({
+  value,
+  viewMonth,
+  onViewMonthChange,
+  onChange,
+  onClose,
+}) {
+  const selectedDate = value || today()
+  const selectedMonth = parseDateInputValue(selectedDate) || new Date()
+  const maxMonth = startOfMonth(new Date())
+  const prevMonth = shiftMonth(viewMonth, -1)
+  const nextMonth = shiftMonth(viewMonth, 1)
+  const canGoNext = nextMonth <= maxMonth
+  const weekdayLabels = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']
+  const cells = getCalendarCells(viewMonth, today())
+
+  return (
+    <div className="mt-3 rounded-3xl border border-sky-100 bg-white p-4 shadow-sm">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => onViewMonthChange(prevMonth)}
+          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-200 bg-gray-50 text-gray-600"
+        >
+          <ChevronLeft size={18} />
+        </button>
+
+        <div className="min-w-0 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-500">
+            Kalender
+          </p>
+          <p className="truncate text-lg font-bold capitalize text-gray-800">
+            {formatPickerMonthLabel(viewMonth)}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => canGoNext && onViewMonthChange(nextMonth)}
+          disabled={!canGoNext}
+          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-200 bg-gray-50 text-gray-600 disabled:opacity-40"
+        >
+          <ChevronRight size={18} />
+        </button>
+      </div>
+
+      <div className="mb-2 grid grid-cols-7 gap-1">
+        {weekdayLabels.map(label => (
+          <div
+            key={label}
+            className="py-2 text-center text-xs font-semibold uppercase tracking-wide text-gray-400"
+          >
+            {label}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map(cell => {
+          if (cell.type === 'empty') {
+            return <div key={cell.key} className="aspect-square" />
+          }
+
+          const isSelected = cell.dateStr === selectedDate
+
+          return (
+            <button
+              key={cell.key}
+              type="button"
+              disabled={cell.isDisabled}
+              onClick={() => {
+                onChange(cell.dateStr)
+                onClose()
+              }}
+              className={`aspect-square rounded-2xl text-sm font-semibold transition-all ${
+                isSelected
+                  ? 'bg-sky-500 text-white shadow-md shadow-sky-200'
+                  : cell.isDisabled
+                    ? 'text-gray-300'
+                    : 'text-gray-700 hover:bg-sky-50'
+              }`}
+            >
+              {cell.day}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="mt-4 flex gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            const currentDate = today()
+            onChange(currentDate)
+            onViewMonthChange(startOfMonth(parseDateInputValue(currentDate) || new Date()))
+            onClose()
+          }}
+          className={`flex-1 rounded-2xl border px-4 py-3 text-sm font-semibold transition-all ${
+            selectedMonth.getFullYear() === new Date().getFullYear() &&
+            selectedMonth.getMonth() === new Date().getMonth() &&
+            selectedDate === today()
+              ? 'border-sky-200 bg-sky-50 text-sky-700'
+              : 'border-gray-200 bg-gray-50 text-gray-600'
+          }`}
+        >
+          Hari ini
+        </button>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-600"
+        >
+          Tutup
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function TimePickerPanel({ value, onChange, onClose }) {
+  const { hour, minute } = parseTimeInputValue(value)
+  const hours = Array.from({ length: 24 }, (_, index) => index)
+  const minutes = Array.from({ length: 60 }, (_, index) => index)
+
+  function updateHour(nextHour) {
+    onChange(toTimeValue(nextHour, minute))
+  }
+
+  function updateMinute(nextMinute) {
+    onChange(toTimeValue(hour, nextMinute))
+  }
+
+  return (
+    <div className="mt-3 rounded-3xl border border-indigo-100 bg-white p-4 shadow-sm">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-500">
+            Waktu
+          </p>
+          <p className="text-lg font-bold text-gray-800">Pilih jam kejadian</p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onChange(nowInputTime())}
+          className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700"
+        >
+          Sekarang
+        </button>
+      </div>
+
+      <div className="mb-4 rounded-3xl bg-gradient-to-br from-indigo-50 to-sky-50 px-4 py-4 text-center">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-500">
+          Jam Terpilih
+        </p>
+        <p className="mt-1 text-3xl font-black tracking-[0.18em] text-gray-800">
+          {formatPickerTimeValue(value)}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-2xl bg-gray-50 p-3">
+          <p className="mb-3 text-center text-sm font-semibold text-gray-500">Jam</p>
+          <div className="grid max-h-44 grid-cols-3 gap-2 overflow-y-auto pr-1">
+            {hours.map(optionHour => {
+              const selected = optionHour === hour
+
+              return (
+                <button
+                  key={optionHour}
+                  type="button"
+                  onClick={() => updateHour(optionHour)}
+                  className={`rounded-2xl px-2 py-2 text-sm font-semibold transition-all ${
+                    selected
+                      ? 'bg-indigo-500 text-white shadow-md shadow-indigo-200'
+                      : 'bg-white text-gray-700 hover:bg-indigo-50'
+                  }`}
+                >
+                  {pad2(optionHour)}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-gray-50 p-3">
+          <p className="mb-3 text-center text-sm font-semibold text-gray-500">Menit</p>
+          <div className="grid max-h-44 grid-cols-3 gap-2 overflow-y-auto pr-1">
+            {minutes.map(optionMinute => {
+              const selected = optionMinute === minute
+
+              return (
+                <button
+                  key={optionMinute}
+                  type="button"
+                  onClick={() => updateMinute(optionMinute)}
+                  className={`rounded-2xl px-2 py-2 text-sm font-semibold transition-all ${
+                    selected
+                      ? 'bg-sky-500 text-white shadow-md shadow-sky-200'
+                      : 'bg-white text-gray-700 hover:bg-sky-50'
+                  }`}
+                >
+                  {pad2(optionMinute)}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex items-center gap-2 rounded-2xl bg-gray-800 px-4 py-3 text-sm font-semibold text-white"
+        >
+          <Check size={16} />
+          Selesai
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function EntryTimingFields({
+  enabled,
+  onEnabledChange,
+  dateValue,
+  timeValue,
+  onDateChange,
+  onTimeChange,
+  lateReason,
+  onLateReasonChange,
+  lateReasonError = '',
+}) {
+  const [activePicker, setActivePicker] = useState(null)
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const selectedDate = parseDateInputValue(dateValue) || new Date()
+    return startOfMonth(selectedDate)
+  })
+
+  useEffect(() => {
+    if (!enabled) {
+      setActivePicker(null)
+      return
+    }
+
+    const selectedDate = parseDateInputValue(dateValue)
+    if (selectedDate) {
+      setCalendarMonth(startOfMonth(selectedDate))
+    }
+  }, [dateValue, enabled])
+
+  return (
+    <div className="mb-6">
+      <label className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={e => onEnabledChange(e.target.checked)}
+          className="mt-1 h-5 w-5 shrink-0 rounded border-gray-300 text-sky-500 focus:ring-sky-400"
+        />
+
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-sky-50">
+              <CalendarDays size={16} className="text-sky-500" />
+            </div>
+
+            <p className="font-semibold text-gray-700">Buat catatan lampau</p>
+          </div>
+
+          <p className="mt-1 text-sm leading-relaxed text-gray-500">
+            Centang kalau kejadian ini sebenarnya terjadi di waktu sebelumnya.
+          </p>
+        </div>
+      </label>
+
+      {enabled ? (
+        <div className={`mt-3 overflow-hidden rounded-2xl border bg-sky-50/70 p-4 ${
+          lateReasonError ? 'border-red-200' : 'border-sky-100'
+        }`}>
+          <p className="mb-3 text-sm text-gray-500">
+            Isi waktu kejadian yang sebenarnya, lalu tambahkan alasan kenapa baru dicatat sekarang.
+          </p>
+
+          <div className="mb-5 space-y-4">
+            <div>
+              <PickerTriggerField
+                label="Tanggal"
+                value={formatPickerDateValue(dateValue)}
+                icon={<CalendarDays size={16} />}
+                tone="sky"
+                active={activePicker === 'date'}
+                onClick={() =>
+                  setActivePicker(current => (current === 'date' ? null : 'date'))
+                }
+              />
+
+              {activePicker === 'date' ? (
+                <DatePickerPanel
+                  value={dateValue}
+                  viewMonth={calendarMonth}
+                  onViewMonthChange={setCalendarMonth}
+                  onChange={onDateChange}
+                  onClose={() => setActivePicker(null)}
+                />
+              ) : null}
+            </div>
+
+            <div>
+              <PickerTriggerField
+                label="Jam"
+                value={formatPickerTimeValue(timeValue)}
+                icon={<Clock3 size={16} />}
+                tone="indigo"
+                active={activePicker === 'time'}
+                onClick={() =>
+                  setActivePicker(current => (current === 'time' ? null : 'time'))
+                }
+              />
+
+              {activePicker === 'time' ? (
+                <TimePickerPanel
+                  value={timeValue}
+                  onChange={onTimeChange}
+                  onClose={() => setActivePicker(null)}
+                />
+              ) : null}
+            </div>
+          </div>
+
+          <label className="block">
+            <p className="mb-2 text-sm text-gray-500">
+              Alasan baru dicatat sekarang
+            </p>
+            <input
+              type="text"
+              value={lateReason}
+              onChange={e => onLateReasonChange(e.target.value)}
+              placeholder="Contoh: baru sempat diinput malam hari"
+              className={`w-full rounded-2xl border-2 px-4 py-3 text-base text-gray-700 focus:outline-none ${getFieldShellClass(
+                Boolean(lateReasonError)
+              )}`}
+            />
+            <FieldErrorText message={lateReasonError} />
+          </label>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 /**
  * ModalShell
  *
@@ -364,7 +1259,13 @@ function ModalShell({
  * - Tailwind does not always generate dynamic classes like `grid-cols-${cols}`.
  * - So we use a static class map instead.
  */
-function OptionGroup({ options, selected, onSelect, cols = 2 }) {
+function OptionGroup({
+  options,
+  selected,
+  onSelect,
+  cols = 2,
+  errorMessage = '',
+}) {
   const colClassMap = {
     1: 'grid-cols-1',
     2: 'grid-cols-2',
@@ -375,35 +1276,109 @@ function OptionGroup({ options, selected, onSelect, cols = 2 }) {
   const gridColsClass = colClassMap[cols] || 'grid-cols-2'
 
   return (
-    <div className={`grid ${gridColsClass} gap-3 mb-6`}>
-      {options.map(opt => (
-        <button
-          key={String(opt.id)}
-          onClick={() => onSelect(opt.id)}
-          className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${selected === opt.id
-              ? 'bg-sky-500 text-white border-sky-500'
-              : 'bg-white text-gray-700 border-gray-200'
-            }`}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
+    <>
+      <div
+        className={`grid ${gridColsClass} gap-3 ${errorMessage ? 'mb-2 rounded-2xl border border-red-200 bg-red-50/60 p-2' : 'mb-6'
+          }`}
+      >
+        {options.map(opt => (
+          <button
+            key={String(opt.id)}
+            onClick={() => onSelect(opt.id)}
+            className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${selected === opt.id
+                ? 'bg-sky-500 text-white border-sky-500'
+                : errorMessage
+                  ? 'bg-white text-red-600 border-red-200'
+                  : 'bg-white text-gray-700 border-gray-200'
+              }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      <FieldErrorText message={errorMessage} className={errorMessage ? 'mb-4' : ''} />
+    </>
   )
 }
 
-function SaveButton({ canSave, onSave, saving = false }) {
+function ToggleChipGroup({
+  options,
+  selectedIds,
+  onToggle,
+  color = 'sky',
+  errorMessage = '',
+}) {
+  const activeClassMap = {
+    sky: 'bg-sky-500 text-white border-sky-500',
+    rose: 'bg-rose-500 text-white border-rose-500',
+    purple: 'bg-purple-500 text-white border-purple-500',
+    red: 'bg-red-500 text-white border-red-500',
+  }
+
+  const activeClass = activeClassMap[color] || activeClassMap.sky
+
   return (
-    <button
-      onClick={() => canSave && !saving && onSave()}
-      disabled={!canSave || saving}
-      className={`w-full py-5 text-xl font-bold rounded-2xl transition-all ${canSave && !saving
-          ? 'bg-sky-500 text-white active:bg-sky-600'
-          : 'bg-gray-100 text-gray-400'
-        }`}
-    >
-      {saving ? 'Menyimpan...' : '✅ SIMPAN'}
-    </button>
+    <>
+      <div className={`flex flex-wrap gap-2 ${errorMessage ? 'mb-2 rounded-2xl border border-red-200 bg-red-50/60 p-2' : 'mb-6'
+        }`}>
+        {options.map(opt => {
+          const selected = selectedIds.includes(opt.id)
+
+          return (
+            <button
+              key={opt.id}
+              onClick={() => onToggle(opt.id)}
+              className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${
+                selected
+                  ? activeClass
+                  : errorMessage
+                    ? 'bg-white text-red-600 border-red-200'
+                    : 'bg-white text-gray-600 border-gray-200'
+              }`}
+            >
+              {opt.label}
+            </button>
+          )
+        })}
+      </div>
+
+      <FieldErrorText message={errorMessage} className={errorMessage ? 'mb-4' : ''} />
+    </>
+  )
+}
+
+function SaveButton({ onSave, saving = false, errors = [] }) {
+  const visibleErrors = errors.filter(Boolean)
+
+  return (
+    <div>
+      <button
+        onClick={() => !saving && onSave()}
+        disabled={saving}
+        className={`w-full py-5 text-xl font-bold rounded-2xl transition-all ${saving
+            ? 'bg-gray-100 text-gray-400'
+            : 'bg-sky-500 text-white active:bg-sky-600'
+          }`}
+      >
+        {saving ? 'Menyimpan...' : '✅ SIMPAN'}
+      </button>
+
+      {visibleErrors.length > 0 ? (
+        <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
+          <p className="text-sm font-bold text-red-600">
+            Masih ada bagian wajib yang belum lengkap.
+          </p>
+          <div className="mt-1 space-y-1">
+            {visibleErrors.map(message => (
+              <p key={message} className="text-sm font-medium text-red-500">
+                {message}
+              </p>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -416,17 +1391,10 @@ function SaveButton({ canSave, onSave, saving = false }) {
  */
 
 function DeleteConfirmModal({ log, onConfirm, onCancel, deleting = false }) {
-  const icons = {
-    drink: '💧',
-    meal: '🍽️',
-    med: '💊',
-    wound: '🩹',
-  }
-
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-6">
       <div className="bg-white rounded-3xl p-6 w-full max-w-sm">
-        <p className="text-5xl text-center mb-4">{icons[log.type]}</p>
+        <p className="text-5xl text-center mb-4">{getTypeConfig(log.type).emoji}</p>
 
         <h3 className="text-xl font-bold text-gray-800 text-center mb-2">
           Hapus catatan ini?
@@ -475,6 +1443,11 @@ function DrinkModal({ onClose, onSave, saving = false }) {
   const [drinkKind, setDrinkKind] = useState(null)
   const [amount, setAmount] = useState(null)
   const [notes, setNotes] = useState('')
+  const [isPastRecord, setIsPastRecord] = useState(false)
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
 
   const drinkTypes = [
     { id: 'water', label: '💧 Air Putih' },
@@ -489,6 +1462,34 @@ function DrinkModal({ onClose, onSave, saving = false }) {
     { id: 2, label: '2 gelas' },
   ]
 
+  const errors = {
+    drinkKind: !drinkKind ? 'Pilih jenis minuman dulu.' : '',
+    amount: !amount ? 'Pilih jumlah minuman dulu.' : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      type: drinkKind,
+      amount,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
+
   return (
     <ModalShell onClose={onClose} title="💧 Catat Minum">
       <p className="text-gray-500 text-lg mb-3">Minuman apa?</p>
@@ -497,6 +1498,7 @@ function DrinkModal({ onClose, onSave, saving = false }) {
         selected={drinkKind}
         onSelect={setDrinkKind}
         cols={2}
+        errorMessage={visibleErrors.drinkKind}
       />
 
       <p className="text-gray-500 text-lg mb-3">Berapa banyak?</p>
@@ -505,14 +1507,27 @@ function DrinkModal({ onClose, onSave, saving = false }) {
         selected={amount}
         onSelect={setAmount}
         cols={3}
+        errorMessage={visibleErrors.amount}
+      />
+
+      <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
       />
 
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
-        canSave={drinkKind && amount}
         saving={saving}
-        onSave={() => onSave({ type: drinkKind, amount, notes })}
+        onSave={handleSubmit}
+        errors={summaryErrors}
       />
     </ModalShell>
   )
@@ -529,6 +1544,11 @@ function MealModal({ onClose, onSave, saving = false }) {
   const [foodText, setFoodText] = useState('')
   const [portion, setPortion] = useState(null)
   const [notes, setNotes] = useState('')
+  const [isPastRecord, setIsPastRecord] = useState(false)
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
 
   const mealTypes = [
     { id: 'breakfast', label: '🌅 Sarapan' },
@@ -543,7 +1563,35 @@ function MealModal({ onClose, onSave, saving = false }) {
     { id: 'large', label: '🫕 Banyak' },
   ]
 
-  const canSave = mealType && foodText.trim().length > 0 && portion
+  const errors = {
+    mealType: !mealType ? 'Pilih waktu makan dulu.' : '',
+    foodText: !foodText.trim() ? 'Menu makan wajib diisi.' : '',
+    portion: !portion ? 'Pilih porsi makan dulu.' : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      mealType,
+      foodText,
+      portion,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
 
   return (
     <ModalShell onClose={onClose} title="🍽️ Catat Makan">
@@ -553,6 +1601,7 @@ function MealModal({ onClose, onSave, saving = false }) {
         selected={mealType}
         onSelect={setMealType}
         cols={2}
+        errorMessage={visibleErrors.mealType}
       />
 
       <p className="text-gray-500 text-lg mb-3">Menu apa?</p>
@@ -561,8 +1610,11 @@ function MealModal({ onClose, onSave, saving = false }) {
         onChange={e => setFoodText(e.target.value)}
         placeholder="Contoh: Nasi putih, ayam goreng, sayur bayam..."
         rows={3}
-        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 resize-none focus:outline-none focus:border-sky-400 mb-6"
+        className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 resize-none focus:outline-none mb-2 ${getFieldShellClass(
+          Boolean(visibleErrors.foodText)
+        )}`}
       />
+      <FieldErrorText message={visibleErrors.foodText} className="mb-4" />
 
       <p className="text-gray-500 text-lg mb-3">Porsinya?</p>
       <OptionGroup
@@ -570,14 +1622,27 @@ function MealModal({ onClose, onSave, saving = false }) {
         selected={portion}
         onSelect={setPortion}
         cols={3}
+        errorMessage={visibleErrors.portion}
+      />
+
+      <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
       />
 
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
-        canSave={canSave}
         saving={saving}
-        onSave={() => onSave({ mealType, foodText, portion, notes })}
+        onSave={handleSubmit}
+        errors={summaryErrors}
       />
     </ModalShell>
   )
@@ -594,15 +1659,11 @@ function MedModal({ onClose, onSave, saving = false }) {
   const [isOther, setIsOther] = useState(false)
   const [status, setStatus] = useState(null)
   const [notes, setNotes] = useState('')
-
-  const presets = [
-    'Metformin',
-    'Glibenclamide',
-    'Glimepiride',
-    'Insulin',
-    'Acarbose',
-    'Vitamin B12',
-  ]
+  const [isPastRecord, setIsPastRecord] = useState(false)
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
 
   const statuses = [
     { id: 'taken', label: '✅ Sudah Minum' },
@@ -610,14 +1671,40 @@ function MedModal({ onClose, onSave, saving = false }) {
     { id: 'half', label: '½ Setengah Dosis' },
   ]
 
-  const canSave = medName.trim().length > 0 && status
+  const errors = {
+    medName: !medName.trim() ? 'Nama obat wajib dipilih atau diisi.' : '',
+    status: !status ? 'Pilih status obat dulu.' : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      medName,
+      status,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
 
   return (
     <ModalShell onClose={onClose} title="💊 Catat Obat">
       <p className="text-gray-500 text-lg mb-3">Obat apa?</p>
 
-      <div className="flex flex-wrap gap-2 mb-4">
-        {presets.map(preset => (
+      <div className={`flex flex-wrap gap-2 ${visibleErrors.medName ? 'mb-2 rounded-2xl border border-red-200 bg-red-50/60 p-2' : 'mb-4'}`}>
+        {MEDICATION_PRESETS.map(preset => (
           <button
             key={preset}
             onClick={() => {
@@ -626,7 +1713,9 @@ function MedModal({ onClose, onSave, saving = false }) {
             }}
             className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${medName === preset && !isOther
                 ? 'bg-purple-500 text-white border-purple-500'
-                : 'bg-white text-gray-600 border-gray-200'
+                : visibleErrors.medName
+                  ? 'bg-white text-red-600 border-red-200'
+                  : 'bg-white text-gray-600 border-gray-200'
               }`}
           >
             {preset}
@@ -634,27 +1723,39 @@ function MedModal({ onClose, onSave, saving = false }) {
         ))}
 
         <button
-          onClick={() => {
-            setMedName('')
-            setIsOther(true)
-          }}
-          className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${isOther
-              ? 'bg-purple-500 text-white border-purple-500'
-              : 'bg-white text-gray-600 border-gray-200'
-            }`}
+            onClick={() => {
+              setMedName('')
+              setIsOther(true)
+            }}
+            className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${isOther
+                ? 'bg-purple-500 text-white border-purple-500'
+                : visibleErrors.medName
+                  ? 'bg-white text-red-600 border-red-200'
+                  : 'bg-white text-gray-600 border-gray-200'
+              }`}
         >
           ✏️ Obat Lainnya
         </button>
       </div>
+      <FieldErrorText
+        message={!isOther ? visibleErrors.medName : ''}
+        className={!isOther && visibleErrors.medName ? 'mb-4' : ''}
+      />
 
       {isOther && (
-        <input
-          type="text"
-          value={medName}
-          onChange={e => setMedName(e.target.value)}
-          placeholder="Silakan isi nama obat di sini..."
-          className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-purple-400 mb-6"
-        />
+        <>
+          <input
+            type="text"
+            value={medName}
+            onChange={e => setMedName(e.target.value)}
+            placeholder="Silakan isi nama obat di sini..."
+            className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none mb-2 ${getFieldShellClass(
+              Boolean(visibleErrors.medName),
+              'focus:border-purple-400'
+            )}`}
+          />
+          <FieldErrorText message={visibleErrors.medName} className="mb-4" />
+        </>
       )}
 
       <p className="text-gray-500 text-lg mb-3">Status?</p>
@@ -663,14 +1764,504 @@ function MedModal({ onClose, onSave, saving = false }) {
         selected={status}
         onSelect={setStatus}
         cols={1}
+        errorMessage={visibleErrors.status}
+      />
+
+      <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
       />
 
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
-        canSave={canSave}
         saving={saving}
-        onSave={() => onSave({ medName, status, notes })}
+        onSave={handleSubmit}
+        errors={summaryErrors}
+      />
+    </ModalShell>
+  )
+}
+
+function GlucoseModal({ onClose, onSave, saving = false }) {
+  const [reading, setReading] = useState('')
+  const [context, setContext] = useState(null)
+  const [symptoms, setSymptoms] = useState([])
+  const [notes, setNotes] = useState('')
+  const [isPastRecord, setIsPastRecord] = useState(false)
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
+
+  function toggleSymptom(id) {
+    setSymptoms(prev => {
+      if (id === 'none') {
+        return prev.includes('none') ? [] : ['none']
+      }
+
+      const next = prev.filter(item => item !== 'none')
+      return next.includes(id)
+        ? next.filter(item => item !== id)
+        : [...next, id]
+    })
+  }
+
+  const errors = {
+    reading: Number(reading) > 0 ? '' : 'Hasil gula darah wajib diisi.',
+    context: !context ? 'Pilih waktu cek gula darah dulu.' : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      reading,
+      context,
+      symptoms,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
+
+  return (
+    <ModalShell onClose={onClose} title="🩸 Catat Gula Darah">
+      <p className="text-gray-500 text-lg mb-3">Hasil berapa mg/dL?</p>
+      <div className="mb-2">
+        <div className="relative">
+          <input
+            type="number"
+            inputMode="numeric"
+            min="1"
+            value={reading}
+            onChange={e => setReading(e.target.value)}
+            placeholder="Contoh: 128"
+            className={`w-full border-2 rounded-2xl p-4 pr-24 text-2xl font-bold text-gray-700 focus:outline-none ${getFieldShellClass(
+              Boolean(visibleErrors.reading),
+              'focus:border-red-400'
+            )}`}
+          />
+          <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
+            mg/dL
+          </span>
+        </div>
+      </div>
+      <FieldErrorText message={visibleErrors.reading} className="mb-4" />
+
+      <p className="text-gray-500 text-lg mb-3">Cek kapan?</p>
+      <OptionGroup
+        options={GLUCOSE_CONTEXT_OPTIONS}
+        selected={context}
+        onSelect={setContext}
+        cols={1}
+        errorMessage={visibleErrors.context}
+      />
+
+      <p className="text-gray-500 text-lg mb-3">
+        Ada keluhan? <span className="text-sm">(boleh pilih lebih dari satu)</span>
+      </p>
+      <ToggleChipGroup
+        options={GLUCOSE_SYMPTOM_OPTIONS}
+        selectedIds={symptoms}
+        onToggle={toggleSymptom}
+        color="red"
+      />
+
+      <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
+      />
+
+      <NotesField value={notes} onChange={setNotes} />
+
+      <SaveButton
+        saving={saving}
+        onSave={handleSubmit}
+        errors={summaryErrors}
+      />
+    </ModalShell>
+  )
+}
+
+function GlucoseTargetModal({
+  onClose,
+  onSave,
+  saving = false,
+  initialTargets = DEFAULT_GLUCOSE_TARGETS,
+}) {
+  const [lowThreshold, setLowThreshold] = useState(
+    String(initialTargets.lowThreshold)
+  )
+  const [preMealHigh, setPreMealHigh] = useState(
+    String(initialTargets.preMealHigh)
+  )
+  const [postMealHigh, setPostMealHigh] = useState(
+    String(initialTargets.postMealHigh)
+  )
+  const [notes, setNotes] = useState('')
+  const [isPastRecord, setIsPastRecord] = useState(false)
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
+
+  const lowValue = Number(lowThreshold)
+  const preMealValue = Number(preMealHigh)
+  const postMealValue = Number(postMealHigh)
+  const errors = {
+    lowThreshold:
+      Number.isFinite(lowValue) && lowValue > 0
+        ? ''
+        : 'Batas rendah peringatan wajib diisi.',
+    preMealHigh:
+      !Number.isFinite(preMealValue) || preMealValue <= 0
+        ? 'Target sebelum makan wajib diisi.'
+        : preMealValue <= lowValue
+          ? 'Target sebelum makan harus lebih tinggi dari batas rendah.'
+          : '',
+    postMealHigh:
+      !Number.isFinite(postMealValue) || postMealValue <= 0
+        ? 'Target sesudah makan wajib diisi.'
+        : postMealValue < preMealValue
+          ? 'Target sesudah makan harus sama atau lebih tinggi dari target sebelum makan.'
+          : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      lowThreshold: lowValue,
+      preMealHigh: preMealValue,
+      postMealHigh: postMealValue,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
+
+  return (
+    <ModalShell onClose={onClose} title="🎯 Atur Target Gula">
+      <div className="bg-red-50 border border-red-100 rounded-2xl p-4 mb-6">
+        <p className="font-semibold text-gray-800 mb-1">Target khusus Nyok</p>
+        <p className="text-gray-500 text-sm">
+          Angka ini sebaiknya mengikuti arahan dokter. Kalau belum ada target khusus,
+          pakai angka default dulu.
+        </p>
+      </div>
+
+      <p className="text-gray-500 text-lg mb-3">Batas rendah peringatan</p>
+      <div className="relative mb-2">
+        <input
+          type="number"
+          inputMode="numeric"
+          min="1"
+          value={lowThreshold}
+          onChange={e => setLowThreshold(e.target.value)}
+          className={`w-full border-2 rounded-2xl p-4 pr-24 text-xl font-bold text-gray-700 focus:outline-none ${getFieldShellClass(
+            Boolean(visibleErrors.lowThreshold),
+            'focus:border-red-400'
+          )}`}
+        />
+        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
+          mg/dL
+        </span>
+      </div>
+      <FieldErrorText message={visibleErrors.lowThreshold} className="mb-4" />
+
+      <p className="text-gray-500 text-lg mb-3">Target maksimal sebelum makan</p>
+      <div className="relative mb-2">
+        <input
+          type="number"
+          inputMode="numeric"
+          min="1"
+          value={preMealHigh}
+          onChange={e => setPreMealHigh(e.target.value)}
+          className={`w-full border-2 rounded-2xl p-4 pr-24 text-xl font-bold text-gray-700 focus:outline-none ${getFieldShellClass(
+            Boolean(visibleErrors.preMealHigh),
+            'focus:border-red-400'
+          )}`}
+        />
+        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
+          mg/dL
+        </span>
+      </div>
+      <FieldErrorText message={visibleErrors.preMealHigh} className="mb-4" />
+
+      <p className="text-gray-500 text-lg mb-3">Target maksimal sesudah makan</p>
+      <div className="relative mb-2">
+        <input
+          type="number"
+          inputMode="numeric"
+          min="1"
+          value={postMealHigh}
+          onChange={e => setPostMealHigh(e.target.value)}
+          className={`w-full border-2 rounded-2xl p-4 pr-24 text-xl font-bold text-gray-700 focus:outline-none ${getFieldShellClass(
+            Boolean(visibleErrors.postMealHigh),
+            'focus:border-red-400'
+          )}`}
+        />
+        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
+          mg/dL
+        </span>
+      </div>
+      <FieldErrorText message={visibleErrors.postMealHigh} className="mb-4" />
+
+      <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
+      />
+
+      <NotesField value={notes} onChange={setNotes} />
+
+      <SaveButton
+        saving={saving}
+        onSave={handleSubmit}
+        errors={summaryErrors}
+      />
+    </ModalShell>
+  )
+}
+
+function MedicationPlanModal({ onClose, onSave, saving = false }) {
+  const [medicationName, setMedicationName] = useState('')
+  const [isOther, setIsOther] = useState(false)
+  const [dosageText, setDosageText] = useState('')
+  const [prescribedBy, setPrescribedBy] = useState('')
+  const [frequency, setFrequency] = useState(null)
+  const [scheduleText, setScheduleText] = useState('')
+  const [planStatus, setPlanStatus] = useState('active')
+  const [notes, setNotes] = useState('')
+  const [isPastRecord, setIsPastRecord] = useState(false)
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
+
+  const errors = {
+    medicationName: !medicationName.trim() ? 'Nama obat wajib dipilih atau diisi.' : '',
+    dosageText: !dosageText.trim() ? 'Dosis obat wajib diisi.' : '',
+    prescribedBy: !prescribedBy.trim() ? 'Nama dokter wajib diisi.' : '',
+    frequency:
+      planStatus === 'active' && !frequency
+        ? 'Pilih frekuensi minum obat dulu.'
+        : '',
+    scheduleText:
+      planStatus === 'active' && !scheduleText.trim()
+        ? 'Jadwal minum obat wajib diisi.'
+        : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      medicationName,
+      dosageText,
+      prescribedBy,
+      frequency,
+      scheduleText,
+      planStatus,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
+
+  return (
+    <ModalShell onClose={onClose} title="🗓️ Atur Jadwal Obat">
+      <p className="text-gray-500 text-lg mb-3">Obat yang diresepkan?</p>
+
+      <div className={`flex flex-wrap gap-2 ${visibleErrors.medicationName ? 'mb-2 rounded-2xl border border-red-200 bg-red-50/60 p-2' : 'mb-4'}`}>
+        {MEDICATION_PRESETS.map(preset => (
+          <button
+            key={preset}
+            onClick={() => {
+              setMedicationName(preset)
+              setIsOther(false)
+            }}
+            className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${
+              medicationName === preset && !isOther
+                ? 'bg-purple-500 text-white border-purple-500'
+                : visibleErrors.medicationName
+                  ? 'bg-white text-red-600 border-red-200'
+                  : 'bg-white text-gray-600 border-gray-200'
+            }`}
+          >
+            {preset}
+          </button>
+        ))}
+
+        <button
+          onClick={() => {
+            setMedicationName('')
+            setIsOther(true)
+          }}
+          className={`px-4 py-2 rounded-full border-2 text-base font-medium transition-all ${
+            isOther
+              ? 'bg-purple-500 text-white border-purple-500'
+              : visibleErrors.medicationName
+                ? 'bg-white text-red-600 border-red-200'
+                : 'bg-white text-gray-600 border-gray-200'
+          }`}
+        >
+          ✏️ Obat Lainnya
+        </button>
+      </div>
+      <FieldErrorText
+        message={!isOther ? visibleErrors.medicationName : ''}
+        className={!isOther && visibleErrors.medicationName ? 'mb-4' : ''}
+      />
+
+      {isOther && (
+        <>
+          <input
+            type="text"
+            value={medicationName}
+            onChange={e => setMedicationName(e.target.value)}
+            placeholder="Nama obat..."
+            className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none mb-2 ${getFieldShellClass(
+              Boolean(visibleErrors.medicationName),
+              'focus:border-purple-400'
+            )}`}
+          />
+          <FieldErrorText message={visibleErrors.medicationName} className="mb-4" />
+        </>
+      )}
+
+      <p className="text-gray-500 text-lg mb-3">Dosis yang diresepkan?</p>
+      <input
+        type="text"
+        value={dosageText}
+        onChange={e => setDosageText(e.target.value)}
+        placeholder="Contoh: 500 mg atau 10 unit"
+        className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none mb-2 ${getFieldShellClass(
+          Boolean(visibleErrors.dosageText),
+          'focus:border-purple-400'
+        )}`}
+      />
+      <FieldErrorText message={visibleErrors.dosageText} className="mb-4" />
+
+      <p className="text-gray-500 text-lg mb-3">Diresepkan oleh siapa?</p>
+      <input
+        type="text"
+        value={prescribedBy}
+        onChange={e => setPrescribedBy(e.target.value)}
+        placeholder="Contoh: dr. Andi, Sp.PD"
+        className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none mb-2 ${getFieldShellClass(
+          Boolean(visibleErrors.prescribedBy),
+          'focus:border-purple-400'
+        )}`}
+      />
+      <FieldErrorText message={visibleErrors.prescribedBy} className="mb-4" />
+
+      <p className="text-gray-500 text-lg mb-3">Status resep saat ini?</p>
+      <OptionGroup
+        options={MED_PLAN_STATUS_OPTIONS}
+        selected={planStatus}
+        onSelect={setPlanStatus}
+        cols={1}
+      />
+
+      {planStatus === 'active' ? (
+        <>
+          <p className="text-gray-500 text-lg mb-3">Seberapa sering diminum?</p>
+          <OptionGroup
+            options={MED_PLAN_FREQUENCY_OPTIONS}
+            selected={frequency}
+            onSelect={setFrequency}
+            cols={2}
+            errorMessage={visibleErrors.frequency}
+          />
+
+          <p className="text-gray-500 text-lg mb-3">Kapan diminum?</p>
+          <textarea
+            value={scheduleText}
+            onChange={e => setScheduleText(e.target.value)}
+            placeholder="Contoh: Sesudah sarapan jam 07:00 dan sesudah makan malam jam 19:00"
+            rows={3}
+            className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 resize-none focus:outline-none mb-2 ${getFieldShellClass(
+              Boolean(visibleErrors.scheduleText),
+              'focus:border-purple-400'
+            )}`}
+          />
+          <FieldErrorText message={visibleErrors.scheduleText} className="mb-4" />
+        </>
+      ) : null}
+
+      <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
+      />
+
+      <NotesField value={notes} onChange={setNotes} />
+
+      <SaveButton
+        saving={saving}
+        onSave={handleSubmit}
+        errors={summaryErrors}
       />
     </ModalShell>
   )
@@ -693,6 +2284,11 @@ function WoundModal({ onClose, onSave, saving = false }) {
   const [appearanceOther, setAppearanceOther] = useState('')
   const [dressingChanged, setDressingChanged] = useState(null)
   const [notes, setNotes] = useState('')
+  const [isPastRecord, setIsPastRecord] = useState(false)
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
+  const [showErrors, setShowErrors] = useState(false)
 
   const conditions = [
     { id: 'better', label: '😊 Lebih Baik' },
@@ -715,10 +2311,40 @@ function WoundModal({ onClose, onSave, saving = false }) {
     )
   }
 
-  const canSave =
-    condition &&
-    dressingChanged !== null &&
-    (appearance.length > 0 || appearanceOther.trim().length > 0)
+  const errors = {
+    condition: !condition ? 'Pilih kondisi luka dulu.' : '',
+    appearance:
+      appearance.length > 0 || appearanceOther.trim().length > 0
+        ? ''
+        : 'Pilih tampilan luka atau isi deskripsi lainnya.',
+    dressingChanged:
+      dressingChanged === null ? 'Pilih status ganti perban dulu.' : '',
+    lateReason:
+      isPastRecord && !lateReason.trim()
+        ? 'Alasan baru dicatat sekarang wajib diisi.'
+        : '',
+  }
+  const visibleErrors = showErrors ? errors : {}
+  const summaryErrors = showErrors ? getValidationMessages(errors) : []
+
+  function handleSubmit() {
+    setShowErrors(true)
+    if (hasValidationErrors(errors)) return
+
+    onSave({
+      condition,
+      appearance,
+      appearanceOther,
+      dressingChanged,
+      notes,
+      ...buildPastRecordPayload(
+        isPastRecord,
+        entryDate,
+        entryTime,
+        lateReason
+      ),
+    })
+  }
 
   return (
     <ModalShell onClose={onClose} title="🩹 Cek Kondisi Luka">
@@ -728,20 +2354,23 @@ function WoundModal({ onClose, onSave, saving = false }) {
         selected={condition}
         onSelect={setCondition}
         cols={3}
+        errorMessage={visibleErrors.condition}
       />
 
       <p className="text-gray-500 text-lg mb-3">
         Tampilan luka? <span className="text-sm">(pilih semua yang sesuai)</span>
       </p>
 
-      <div className="grid grid-cols-2 gap-3 mb-4">
+      <div className={`grid grid-cols-2 gap-3 ${visibleErrors.appearance ? 'mb-2 rounded-2xl border border-red-200 bg-red-50/60 p-2' : 'mb-4'}`}>
         {appearanceOptions.map(opt => (
           <button
             key={opt.id}
             onClick={() => toggleAppearance(opt.id)}
             className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${appearance.includes(opt.id)
                 ? 'bg-rose-500 text-white border-rose-500'
-                : 'bg-white text-gray-700 border-gray-200'
+                : visibleErrors.appearance
+                  ? 'bg-white text-red-600 border-red-200'
+                  : 'bg-white text-gray-700 border-gray-200'
               }`}
           >
             {opt.label}
@@ -754,12 +2383,16 @@ function WoundModal({ onClose, onSave, saving = false }) {
         value={appearanceOther}
         onChange={e => setAppearanceOther(e.target.value)}
         placeholder="Deskripsi tampilan luka lainnya... (opsional)"
-        className="w-full border-2 border-gray-200 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none focus:border-rose-400 mb-6"
+        className={`w-full border-2 rounded-2xl p-4 text-lg text-gray-700 focus:outline-none mb-2 ${getFieldShellClass(
+          Boolean(visibleErrors.appearance),
+          'focus:border-rose-400'
+        )}`}
       />
+      <FieldErrorText message={visibleErrors.appearance} className="mb-4" />
 
       <p className="text-gray-500 text-lg mb-3">Ganti perban hari ini?</p>
 
-      <div className="grid grid-cols-2 gap-3 mb-6">
+      <div className={`grid grid-cols-2 gap-3 ${visibleErrors.dressingChanged ? 'mb-2 rounded-2xl border border-red-200 bg-red-50/60 p-2' : 'mb-6'}`}>
         {[
           { id: true, label: '✅ Sudah Ganti' },
           { id: false, label: '⏭️ Belum Ganti' },
@@ -769,28 +2402,35 @@ function WoundModal({ onClose, onSave, saving = false }) {
             onClick={() => setDressingChanged(opt.id)}
             className={`py-4 text-lg rounded-2xl border-2 font-medium transition-all ${dressingChanged === opt.id
                 ? 'bg-sky-500 text-white border-sky-500'
-                : 'bg-white text-gray-700 border-gray-200'
+                : visibleErrors.dressingChanged
+                  ? 'bg-white text-red-600 border-red-200'
+                  : 'bg-white text-gray-700 border-gray-200'
               }`}
           >
             {opt.label}
           </button>
         ))}
       </div>
+      <FieldErrorText message={visibleErrors.dressingChanged} className="mb-4" />
+
+      <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+        lateReasonError={visibleErrors.lateReason}
+      />
 
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
-        canSave={canSave}
         saving={saving}
-        onSave={() =>
-          onSave({
-            condition,
-            appearance,
-            appearanceOther,
-            dressingChanged,
-            notes,
-          })
-        }
+        onSave={handleSubmit}
+        errors={summaryErrors}
       />
     </ModalShell>
   )
@@ -854,6 +2494,169 @@ function DrinkCard({ logs, onAdd }) {
   )
 }
 
+function GlucoseCard({ logs, onAdd, onEditTargets }) {
+  const todayGlucoseLogs = logs
+    .filter(log => log.type === 'glucose' && log.date === today())
+    .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
+
+  const targets = getGlucoseTargets(logs)
+  const latestToday = todayGlucoseLogs[0] || null
+  const latestMeta = latestToday?.meta || {}
+  const reading = Number(latestMeta.readingMgDl)
+  const hasReading = Number.isFinite(reading)
+  const severity = getGlucoseSeverity(reading, latestMeta.context, targets)
+  const ui = getGlucoseUi(severity)
+
+  return (
+    <div
+      className={`bg-gradient-to-br ${ui.accent} border rounded-3xl p-5 mb-4 shadow-sm`}
+    >
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <p className="text-gray-500 text-sm font-medium uppercase tracking-wide">
+            Gula Darah Hari Ini
+          </p>
+
+          {latestToday ? (
+            <>
+              <p className="text-4xl font-black text-gray-800 mt-1">
+                {hasReading ? reading : '—'}{' '}
+                <span className="text-xl font-bold text-gray-500">mg/dL</span>
+              </p>
+              <p className="text-gray-500 mt-1">
+                {GLUCOSE_CONTEXT_LABELS[latestMeta.context] || 'Cek gula'}
+                {' · '}
+                {latestToday.time}
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-2xl font-black text-gray-800 mt-1">
+                Belum dicek
+              </p>
+              <p className="text-gray-500 mt-1">
+                Catat hasil cek gula darah supaya keluarga bisa ikut memantau.
+              </p>
+            </>
+          )}
+        </div>
+
+        <span className="text-4xl">🩸</span>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <span className={`px-3 py-1 rounded-full text-sm font-semibold ${ui.badge}`}>
+          {latestToday ? ui.label : 'Belum ada data hari ini'}
+        </span>
+
+        <span className="text-sm text-gray-500">
+          {todayGlucoseLogs.length}x cek hari ini
+        </span>
+      </div>
+
+      <p className="text-sm text-gray-500 mb-4">
+        Target aktif: {formatGlucoseTargetSummary(targets)}
+      </p>
+
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          onClick={onAdd}
+          className="bg-white/75 hover:bg-white active:bg-white/90 border border-white rounded-2xl py-3 text-base font-semibold text-gray-700 transition-all"
+        >
+          + Catat Gula
+        </button>
+
+        <button
+          onClick={onEditTargets}
+          className="bg-white/55 hover:bg-white/70 active:bg-white/85 border border-white rounded-2xl py-3 text-base font-semibold text-gray-600 transition-all"
+        >
+          🎯 Atur Target
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function MedicationPlanCard({ logs, onAdd }) {
+  const activePlans = getActiveMedicationPlans(logs)
+
+  return (
+    <div className="bg-white rounded-3xl p-5 shadow-sm border border-purple-100 mb-6">
+      <div className="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <p className="text-gray-500 text-sm font-medium uppercase tracking-wide">
+            Resep Obat Saat Ini
+          </p>
+          <h3 className="text-2xl font-black text-gray-800 mt-1">
+            Jadwal Obat
+          </h3>
+        </div>
+
+        <span className="text-4xl">🗓️</span>
+      </div>
+
+      {activePlans.length === 0 ? (
+        <div className="bg-purple-50 border border-purple-100 rounded-2xl p-4 mb-4">
+          <p className="font-semibold text-gray-800 mb-1">
+            Belum ada resep aktif
+          </p>
+          <p className="text-gray-500">
+            Simpan obat yang sedang diresepkan dokter, dosisnya, dan kapan harus diminum.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3 mb-4">
+          {activePlans.map(plan => {
+            const display = getMedicationPlanDisplay(plan.meta)
+
+            return (
+              <div
+                key={plan.id}
+                className="bg-purple-50 border border-purple-100 rounded-2xl p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-gray-800">
+                      {display.medicationName}
+                    </p>
+                    <p className="text-gray-500 text-sm">
+                      {display.dosageText}
+                      {display.frequencyText ? ` · ${display.frequencyText}` : ''}
+                    </p>
+                  </div>
+
+                  <span className="bg-white text-purple-700 text-xs font-semibold px-3 py-1 rounded-full">
+                    {display.statusText}
+                  </span>
+                </div>
+
+                {display.scheduleText ? (
+                  <p className="text-gray-600 text-sm mt-2">🕒 {display.scheduleText}</p>
+                ) : null}
+
+                {display.prescribedBy ? (
+                  <p className="text-gray-500 text-sm mt-1">👨‍⚕️ {display.prescribedBy}</p>
+                ) : null}
+
+                {plan.notes ? (
+                  <p className="text-gray-400 text-sm italic mt-1">📝 {plan.notes}</p>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <button
+        onClick={onAdd}
+        className="w-full bg-purple-50 hover:bg-purple-100 active:bg-purple-200 border border-purple-200 rounded-2xl py-3 text-lg font-semibold text-purple-700 transition-all"
+      >
+        + Atur Jadwal Obat
+      </button>
+    </div>
+  )
+}
+
 /* --------------------------- TodayTimeline -------------------------- */
 /**
  * Breakdown:
@@ -862,7 +2665,7 @@ function DrinkCard({ logs, onAdd }) {
  */
 function TodayTimeline({ logs, onDeleteRequest }) {
   const todayLogs = logs
-    .filter(l => l.date === today())
+    .filter(l => l.date === today() && isVisibleLogType(l.type))
     .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
 
   if (todayLogs.length === 0) {
@@ -874,30 +2677,20 @@ function TodayTimeline({ logs, onDeleteRequest }) {
     )
   }
 
-  const icons = {
-    drink: '💧',
-    meal: '🍽️',
-    med: '💊',
-    wound: '🩹',
-  }
-
-  const labels = {
-    drink: 'Minum',
-    meal: 'Makan',
-    med: 'Obat',
-    wound: 'Luka',
-  }
-
   return (
     <div className="space-y-3">
       {todayLogs.map(log => (
         <div key={log.id} className="bg-white rounded-2xl p-4 shadow-sm">
           <div className="flex items-center gap-3">
-            <span className="text-3xl">{icons[log.type]}</span>
+            <span className="text-3xl">{getTypeConfig(log.type).emoji}</span>
 
             <div className="flex-1">
-              <p className="font-semibold text-gray-800">{labels[log.type]}</p>
+              <p className="font-semibold text-gray-800">{getTypeConfig(log.type).label}</p>
               <p className="text-gray-500 text-sm">{log.summary}</p>
+
+              {formatLogMetaDescription(log) ? (
+                <p className="text-gray-400 text-sm mt-1">{formatLogMetaDescription(log)}</p>
+              ) : null}
 
               {log.notes ? (
                 <p className="text-gray-400 text-sm italic mt-1">📝 {log.notes}</p>
@@ -936,26 +2729,14 @@ function TodayTimeline({ logs, onDeleteRequest }) {
  */
 
 function RekapScreen({ logs, onBack }) {
-  const icons = {
-    drink: '💧',
-    meal: '🍽️',
-    med: '💊',
-    wound: '🩹',
-  }
-
-  const labels = {
-    drink: 'Minum',
-    meal: 'Makan',
-    med: 'Obat',
-    wound: 'Luka',
-  }
-
   const grouped = useMemo(() => {
-    return logs.reduce((acc, log) => {
+    return logs
+      .filter(log => isVisibleLogType(log.type))
+      .reduce((acc, log) => {
       if (!acc[log.date]) acc[log.date] = []
       acc[log.date].push(log)
       return acc
-    }, {})
+      }, {})
   }, [logs])
 
   const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a))
@@ -963,7 +2744,7 @@ function RekapScreen({ logs, onBack }) {
   function formatDate(dateStr) {
     const date = new Date(`${dateStr}T00:00:00`)
     const todayStr = today()
-    const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0]
+    const yesterdayStr = toDateInputValue(new Date(Date.now() - 86400000))
 
     if (dateStr === todayStr) return 'Hari Ini'
     if (dateStr === yesterdayStr) return 'Kemarin'
@@ -982,6 +2763,7 @@ function RekapScreen({ logs, onBack }) {
 
     const mealCount = dayLogs.filter(l => l.type === 'meal').length
     const medCount = dayLogs.filter(l => l.type === 'med').length
+    const glucoseCount = dayLogs.filter(l => l.type === 'glucose').length
     const woundLog = dayLogs.find(l => l.type === 'wound')
 
     return (
@@ -1001,6 +2783,12 @@ function RekapScreen({ logs, onBack }) {
         {medCount > 0 && (
           <span className="bg-purple-100 text-purple-700 text-xs font-medium px-3 py-1 rounded-full">
             💊 {medCount}x obat
+          </span>
+        )}
+
+        {glucoseCount > 0 && (
+          <span className="bg-red-100 text-red-700 text-xs font-medium px-3 py-1 rounded-full">
+            🩸 {glucoseCount}x cek gula
           </span>
         )}
 
@@ -1052,11 +2840,17 @@ function RekapScreen({ logs, onBack }) {
           <div className="border-t border-gray-100 divide-y divide-gray-50">
             {sorted.map(log => (
               <div key={log.id} className="flex items-start gap-3 px-5 py-3">
-                <span className="text-2xl mt-0.5">{icons[log.type]}</span>
+                <span className="text-2xl mt-0.5">{getTypeConfig(log.type).emoji}</span>
 
                 <div className="flex-1">
-                  <p className="font-semibold text-gray-700">{labels[log.type]}</p>
+                  <p className="font-semibold text-gray-700">{getTypeConfig(log.type).label}</p>
                   <p className="text-gray-500 text-sm">{log.summary}</p>
+
+                  {formatLogMetaDescription(log) ? (
+                    <p className="text-gray-400 text-sm mt-0.5">
+                      {formatLogMetaDescription(log)}
+                    </p>
+                  ) : null}
 
                   {log.notes ? (
                     <p className="text-gray-400 text-sm italic mt-0.5">
@@ -1196,11 +2990,11 @@ export default function App() {
         { event: '*', schema: 'public', table: 'logs' },
         payload => {
           if (payload.eventType === 'INSERT') {
-            setLogs(prev => upsertLogInState(prev, payload.new))
+            setLogs(prev => upsertLogInState(prev, normalizeLog(payload.new)))
           }
 
           if (payload.eventType === 'UPDATE') {
-            setLogs(prev => upsertLogInState(prev, payload.new))
+            setLogs(prev => upsertLogInState(prev, normalizeLog(payload.new)))
           }
 
           if (payload.eventType === 'DELETE') {
@@ -1398,15 +3192,31 @@ export default function App() {
   /* ---------------- Actions ---------------- */
   async function addLog(entry) {
     const user = USERS.find(u => u.id === currentUser)
+    const {
+      entryDate,
+      entryTime,
+      lateReason,
+      meta: entryMeta,
+      ...restEntry
+    } = entry
+    const finalDate = entryDate || today()
+    const finalTime = entryTime || nowInputTime()
+    const finalTimestamp = buildTimestampFromDateTime(finalDate, finalTime)
 
     const newLog = {
       id: generateId(),
-      date: today(),
-      time: nowTime(),
-      timestamp: Date.now(),
+      date: finalDate,
+      time: finalTime,
+      timestamp: finalTimestamp,
       logged_by: user ? `${user.emoji} ${user.name}` : 'Unknown',
       device_info: getDeviceInfo(),
-      ...entry,
+      ...restEntry,
+      meta: {
+        ...(entryMeta || {}),
+        ...(lateReason?.trim()
+          ? { lateEntryReason: lateReason.trim() }
+          : {}),
+      },
     }
 
     setSaving(true)
@@ -1442,7 +3252,7 @@ export default function App() {
   }
 
   /* ---------------- Save handlers per modal ---------------- */
-  function handleDrinkSave({ type, amount, notes }) {
+  function handleDrinkSave({ type, amount, notes, ...timing }) {
     const typeLabels = {
       water: 'Air Putih',
       tea: 'Teh',
@@ -1455,12 +3265,13 @@ export default function App() {
       amount,
       notes,
       summary: `${typeLabels[type]} · ${amount} gelas`,
+      ...timing,
     })
 
     setModal(null)
   }
 
-  function handleMealSave({ mealType, foodText, portion, notes }) {
+  function handleMealSave({ mealType, foodText, portion, notes, ...timing }) {
     const mealLabels = {
       breakfast: 'Sarapan',
       lunch: 'Makan Siang',
@@ -1478,12 +3289,13 @@ export default function App() {
       type: 'meal',
       notes,
       summary: `${mealLabels[mealType]} · ${foodText} (${portionLabels[portion]})`,
+      ...timing,
     })
 
     setModal(null)
   }
 
-  function handleMedSave({ medName, status, notes }) {
+  function handleMedSave({ medName, status, notes, ...timing }) {
     const statusLabels = {
       taken: 'Sudah diminum',
       skipped: 'Tidak diminum',
@@ -1494,6 +3306,100 @@ export default function App() {
       type: 'med',
       notes,
       summary: `${medName} · ${statusLabels[status]}`,
+      ...timing,
+    })
+
+    setModal(null)
+  }
+
+  function handleGlucoseSave({
+    reading,
+    context,
+    symptoms,
+    notes,
+    ...timing
+  }) {
+    const readingMgDl = Number(reading)
+    const severity = getGlucoseSeverity(
+      readingMgDl,
+      context,
+      getGlucoseTargets(logs)
+    )
+
+    addLog({
+      type: 'glucose',
+      notes,
+      summary: `${readingMgDl} mg/dL · ${
+        GLUCOSE_CONTEXT_LABELS[context] || 'Cek gula'
+      }`,
+      meta: {
+        schema: 'mamicare-care-v1',
+        readingMgDl,
+        context,
+        symptoms,
+        severity,
+      },
+      ...timing,
+    })
+
+    setModal(null)
+  }
+
+  function handleGlucoseTargetSave({
+    lowThreshold,
+    preMealHigh,
+    postMealHigh,
+    notes,
+    ...timing
+  }) {
+    addLog({
+      type: 'glucose_target',
+      notes,
+      summary: `Target gula diperbarui · ${lowThreshold}-${preMealHigh} / <${postMealHigh} mg/dL`,
+      meta: {
+        schema: 'mamicare-care-v1',
+        lowThreshold,
+        preMealHigh,
+        postMealHigh,
+      },
+      ...timing,
+    })
+
+    setModal(null)
+  }
+
+  function handleMedicationPlanSave({
+    medicationName,
+    dosageText,
+    prescribedBy,
+    frequency,
+    scheduleText,
+    planStatus,
+    notes,
+    ...timing
+  }) {
+    const frequencyText = MED_PLAN_FREQUENCY_LABELS[frequency]
+    const summary =
+      planStatus === 'stopped'
+        ? `${medicationName} · Dihentikan`
+        : `${medicationName} · ${dosageText}${
+            frequencyText ? ` · ${frequencyText}` : ''
+          }`
+
+    addLog({
+      type: 'med_plan',
+      notes,
+      summary,
+      meta: {
+        schema: 'mamicare-care-v1',
+        medicationName,
+        dosageText,
+        prescribedBy,
+        frequency,
+        scheduleText,
+        planStatus,
+      },
+      ...timing,
     })
 
     setModal(null)
@@ -1505,6 +3411,7 @@ export default function App() {
     appearanceOther,
     dressingChanged,
     notes,
+    ...timing
   }) {
     const conditionLabels = {
       better: 'Lebih Baik 😊',
@@ -1536,6 +3443,7 @@ export default function App() {
       dressing_changed: dressingChanged,
       summary: `${conditionLabels[condition]} · ${appearanceText} · Perban: ${dressingChanged ? 'Diganti' : 'Belum diganti'
         }`,
+      ...timing,
     })
 
     setModal(null)
@@ -1686,8 +3594,13 @@ export default function App() {
             }}
           >
             <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
+            <GlucoseCard
+              logs={logs}
+              onAdd={() => setModal('glucose')}
+              onEditTargets={() => setModal('glucose_target')}
+            />
 
-            <div className="grid grid-cols-3 gap-3 mb-6">
+            <div className="grid grid-cols-2 gap-3 mb-6">
               {[
                 {
                   id: 'meal',
@@ -1707,6 +3620,12 @@ export default function App() {
                   label: 'Luka',
                   color: 'bg-rose-50 border-rose-300 text-rose-600',
                 },
+                {
+                  id: 'glucose',
+                  emoji: '🩸',
+                  label: 'Gula Darah',
+                  color: 'bg-red-50 border-red-300 text-red-600',
+                },
               ].map(btn => (
                 <button
                   key={btn.id}
@@ -1718,6 +3637,8 @@ export default function App() {
                 </button>
               ))}
             </div>
+
+            <MedicationPlanCard logs={logs} onAdd={() => setModal('med_plan')} />
 
             <h2 className="text-lg font-bold text-gray-700 mb-3">Catatan Hari Ini</h2>
             <TodayTimeline logs={logs} onDeleteRequest={setDeleteTarget} />
@@ -1746,6 +3667,31 @@ export default function App() {
         <MedModal
           onClose={() => setModal(null)}
           onSave={handleMedSave}
+          saving={saving}
+        />
+      )}
+
+      {modal === 'glucose' && (
+        <GlucoseModal
+          onClose={() => setModal(null)}
+          onSave={handleGlucoseSave}
+          saving={saving}
+        />
+      )}
+
+      {modal === 'glucose_target' && (
+        <GlucoseTargetModal
+          onClose={() => setModal(null)}
+          onSave={handleGlucoseTargetSave}
+          saving={saving}
+          initialTargets={getGlucoseTargets(logs)}
+        />
+      )}
+
+      {modal === 'med_plan' && (
+        <MedicationPlanModal
+          onClose={() => setModal(null)}
+          onSave={handleMedicationPlanSave}
           saving={saving}
         />
       )}
