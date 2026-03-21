@@ -194,6 +194,21 @@ const MED_PLAN_STATUS_LABELS = {
   stopped: 'Dihentikan',
 }
 
+const DEFAULT_GLUCOSE_TARGETS = {
+  lowThreshold: 80,
+  preMealHigh: 130,
+  postMealHigh: 180,
+}
+
+const VISIBLE_LOG_TYPES = new Set([
+  'drink',
+  'meal',
+  'med',
+  'wound',
+  'glucose',
+  'med_plan',
+])
+
 function rubberBandDistance(offset, dimension) {
   if (offset <= 0) return 0
 
@@ -203,6 +218,10 @@ function rubberBandDistance(offset, dimension) {
 
 function getTypeConfig(type) {
   return TYPE_CONFIG[type] || { emoji: '📌', label: 'Catatan' }
+}
+
+function isVisibleLogType(type) {
+  return VISIBLE_LOG_TYPES.has(type)
 }
 
 function unpackStoredNotes(storedNotes) {
@@ -256,21 +275,56 @@ function serializeLog(log) {
   }
 }
 
-function getGlucoseTargetHigh(context) {
-  if (context === 'after_meal') return 180
-  if (context === 'random') return 180
-  if (context === 'bedtime') return 180
-  return 130
+function toPositiveNumber(value, fallback) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
-function getGlucoseSeverity(reading, context) {
+function getLatestGlucoseTarget(logs) {
+  return [...logs]
+    .filter(log => log.type === 'glucose_target')
+    .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))[0]
+}
+
+function getGlucoseTargets(logs) {
+  const latestTarget = getLatestGlucoseTarget(logs)
+  const meta = latestTarget?.meta || {}
+
+  return {
+    lowThreshold: toPositiveNumber(
+      meta.lowThreshold,
+      DEFAULT_GLUCOSE_TARGETS.lowThreshold
+    ),
+    preMealHigh: toPositiveNumber(
+      meta.preMealHigh,
+      DEFAULT_GLUCOSE_TARGETS.preMealHigh
+    ),
+    postMealHigh: toPositiveNumber(
+      meta.postMealHigh,
+      DEFAULT_GLUCOSE_TARGETS.postMealHigh
+    ),
+  }
+}
+
+function formatGlucoseTargetSummary(targets) {
+  return `${targets.lowThreshold}-${targets.preMealHigh} mg/dL sebelum makan · <${targets.postMealHigh} mg/dL sesudah makan`
+}
+
+function getGlucoseTargetHigh(context, targets = DEFAULT_GLUCOSE_TARGETS) {
+  if (context === 'after_meal') return targets.postMealHigh
+  if (context === 'random') return targets.postMealHigh
+  if (context === 'bedtime') return targets.postMealHigh
+  return targets.preMealHigh
+}
+
+function getGlucoseSeverity(reading, context, targets = DEFAULT_GLUCOSE_TARGETS) {
   const value = Number(reading)
 
   if (!Number.isFinite(value)) return 'unknown'
   if (value < 70) return 'urgent-low'
-  if (value < 80) return 'low'
+  if (value < targets.lowThreshold) return 'low'
   if (value >= 250) return 'urgent-high'
-  if (value > getGlucoseTargetHigh(context)) return 'high'
+  if (value > getGlucoseTargetHigh(context, targets)) return 'high'
   return 'ok'
 }
 
@@ -1033,6 +1087,107 @@ function GlucoseModal({ onClose, onSave, saving = false }) {
   )
 }
 
+function GlucoseTargetModal({
+  onClose,
+  onSave,
+  saving = false,
+  initialTargets = DEFAULT_GLUCOSE_TARGETS,
+}) {
+  const [lowThreshold, setLowThreshold] = useState(
+    String(initialTargets.lowThreshold)
+  )
+  const [preMealHigh, setPreMealHigh] = useState(
+    String(initialTargets.preMealHigh)
+  )
+  const [postMealHigh, setPostMealHigh] = useState(
+    String(initialTargets.postMealHigh)
+  )
+  const [notes, setNotes] = useState('')
+
+  const lowValue = Number(lowThreshold)
+  const preMealValue = Number(preMealHigh)
+  const postMealValue = Number(postMealHigh)
+  const canSave =
+    Number.isFinite(lowValue) &&
+    Number.isFinite(preMealValue) &&
+    Number.isFinite(postMealValue) &&
+    lowValue > 0 &&
+    preMealValue > lowValue &&
+    postMealValue >= preMealValue
+
+  return (
+    <ModalShell onClose={onClose} title="🎯 Atur Target Gula">
+      <div className="bg-red-50 border border-red-100 rounded-2xl p-4 mb-6">
+        <p className="font-semibold text-gray-800 mb-1">Target khusus Nyok</p>
+        <p className="text-gray-500 text-sm">
+          Angka ini sebaiknya mengikuti arahan dokter. Kalau belum ada target khusus,
+          pakai angka default dulu.
+        </p>
+      </div>
+
+      <p className="text-gray-500 text-lg mb-3">Batas rendah peringatan</p>
+      <div className="relative mb-6">
+        <input
+          type="number"
+          inputMode="numeric"
+          min="1"
+          value={lowThreshold}
+          onChange={e => setLowThreshold(e.target.value)}
+          className="w-full border-2 border-gray-200 rounded-2xl p-4 pr-24 text-xl font-bold text-gray-700 focus:outline-none focus:border-red-400"
+        />
+        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
+          mg/dL
+        </span>
+      </div>
+
+      <p className="text-gray-500 text-lg mb-3">Target maksimal sebelum makan</p>
+      <div className="relative mb-6">
+        <input
+          type="number"
+          inputMode="numeric"
+          min="1"
+          value={preMealHigh}
+          onChange={e => setPreMealHigh(e.target.value)}
+          className="w-full border-2 border-gray-200 rounded-2xl p-4 pr-24 text-xl font-bold text-gray-700 focus:outline-none focus:border-red-400"
+        />
+        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
+          mg/dL
+        </span>
+      </div>
+
+      <p className="text-gray-500 text-lg mb-3">Target maksimal sesudah makan</p>
+      <div className="relative mb-6">
+        <input
+          type="number"
+          inputMode="numeric"
+          min="1"
+          value={postMealHigh}
+          onChange={e => setPostMealHigh(e.target.value)}
+          className="w-full border-2 border-gray-200 rounded-2xl p-4 pr-24 text-xl font-bold text-gray-700 focus:outline-none focus:border-red-400"
+        />
+        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 font-semibold">
+          mg/dL
+        </span>
+      </div>
+
+      <NotesField value={notes} onChange={setNotes} />
+
+      <SaveButton
+        canSave={canSave}
+        saving={saving}
+        onSave={() =>
+          onSave({
+            lowThreshold: lowValue,
+            preMealHigh: preMealValue,
+            postMealHigh: postMealValue,
+            notes,
+          })
+        }
+      />
+    </ModalShell>
+  )
+}
+
 function MedicationPlanModal({ onClose, onSave, saving = false }) {
   const [medicationName, setMedicationName] = useState('')
   const [isOther, setIsOther] = useState(false)
@@ -1342,15 +1497,17 @@ function DrinkCard({ logs, onAdd }) {
   )
 }
 
-function GlucoseCard({ logs, onAdd }) {
+function GlucoseCard({ logs, onAdd, onEditTargets }) {
   const todayGlucoseLogs = logs
     .filter(log => log.type === 'glucose' && log.date === today())
     .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
 
+  const targets = getGlucoseTargets(logs)
   const latestToday = todayGlucoseLogs[0] || null
   const latestMeta = latestToday?.meta || {}
   const reading = Number(latestMeta.readingMgDl)
-  const severity = getGlucoseSeverity(reading, latestMeta.context)
+  const hasReading = Number.isFinite(reading)
+  const severity = getGlucoseSeverity(reading, latestMeta.context, targets)
   const ui = getGlucoseUi(severity)
 
   return (
@@ -1366,7 +1523,8 @@ function GlucoseCard({ logs, onAdd }) {
           {latestToday ? (
             <>
               <p className="text-4xl font-black text-gray-800 mt-1">
-                {reading} <span className="text-xl font-bold text-gray-500">mg/dL</span>
+                {hasReading ? reading : '—'}{' '}
+                <span className="text-xl font-bold text-gray-500">mg/dL</span>
               </p>
               <p className="text-gray-500 mt-1">
                 {GLUCOSE_CONTEXT_LABELS[latestMeta.context] || 'Cek gula'}
@@ -1399,12 +1557,25 @@ function GlucoseCard({ logs, onAdd }) {
         </span>
       </div>
 
-      <button
-        onClick={onAdd}
-        className="w-full bg-white/75 hover:bg-white active:bg-white/90 border border-white rounded-2xl py-3 text-lg font-semibold text-gray-700 transition-all"
-      >
-        + Catat Gula Darah
-      </button>
+      <p className="text-sm text-gray-500 mb-4">
+        Target aktif: {formatGlucoseTargetSummary(targets)}
+      </p>
+
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          onClick={onAdd}
+          className="bg-white/75 hover:bg-white active:bg-white/90 border border-white rounded-2xl py-3 text-base font-semibold text-gray-700 transition-all"
+        >
+          + Catat Gula
+        </button>
+
+        <button
+          onClick={onEditTargets}
+          className="bg-white/55 hover:bg-white/70 active:bg-white/85 border border-white rounded-2xl py-3 text-base font-semibold text-gray-600 transition-all"
+        >
+          🎯 Atur Target
+        </button>
+      </div>
     </div>
   )
 }
@@ -1497,7 +1668,7 @@ function MedicationPlanCard({ logs, onAdd }) {
  */
 function TodayTimeline({ logs, onDeleteRequest }) {
   const todayLogs = logs
-    .filter(l => l.date === today())
+    .filter(l => l.date === today() && isVisibleLogType(l.type))
     .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
 
   if (todayLogs.length === 0) {
@@ -1562,11 +1733,13 @@ function TodayTimeline({ logs, onDeleteRequest }) {
 
 function RekapScreen({ logs, onBack }) {
   const grouped = useMemo(() => {
-    return logs.reduce((acc, log) => {
+    return logs
+      .filter(log => isVisibleLogType(log.type))
+      .reduce((acc, log) => {
       if (!acc[log.date]) acc[log.date] = []
       acc[log.date].push(log)
       return acc
-    }, {})
+      }, {})
   }, [logs])
 
   const sortedDates = Object.keys(grouped).sort((a, b) => b.localeCompare(a))
@@ -2125,7 +2298,11 @@ export default function App() {
 
   function handleGlucoseSave({ reading, context, symptoms, notes }) {
     const readingMgDl = Number(reading)
-    const severity = getGlucoseSeverity(readingMgDl, context)
+    const severity = getGlucoseSeverity(
+      readingMgDl,
+      context,
+      getGlucoseTargets(logs)
+    )
 
     addLog({
       type: 'glucose',
@@ -2139,6 +2316,27 @@ export default function App() {
         context,
         symptoms,
         severity,
+      },
+    })
+
+    setModal(null)
+  }
+
+  function handleGlucoseTargetSave({
+    lowThreshold,
+    preMealHigh,
+    postMealHigh,
+    notes,
+  }) {
+    addLog({
+      type: 'glucose_target',
+      notes,
+      summary: `Target gula diperbarui · ${lowThreshold}-${preMealHigh} / <${postMealHigh} mg/dL`,
+      meta: {
+        schema: 'mamicare-care-v1',
+        lowThreshold,
+        preMealHigh,
+        postMealHigh,
       },
     })
 
@@ -2367,7 +2565,11 @@ export default function App() {
             }}
           >
             <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
-            <GlucoseCard logs={logs} onAdd={() => setModal('glucose')} />
+            <GlucoseCard
+              logs={logs}
+              onAdd={() => setModal('glucose')}
+              onEditTargets={() => setModal('glucose_target')}
+            />
 
             <div className="grid grid-cols-2 gap-3 mb-6">
               {[
@@ -2445,6 +2647,15 @@ export default function App() {
           onClose={() => setModal(null)}
           onSave={handleGlucoseSave}
           saving={saving}
+        />
+      )}
+
+      {modal === 'glucose_target' && (
+        <GlucoseTargetModal
+          onClose={() => setModal(null)}
+          onSave={handleGlucoseTargetSave}
+          saving={saving}
+          initialTargets={getGlucoseTargets(logs)}
         />
       )}
 
