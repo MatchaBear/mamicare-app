@@ -850,6 +850,11 @@ function PickerTriggerField({
     tone === 'sky'
       ? 'text-sky-500 bg-sky-50'
       : 'text-indigo-500 bg-indigo-50'
+  const activeClass =
+    tone === 'sky'
+      ? 'border-sky-300 ring-2 ring-sky-100'
+      : 'border-indigo-300 ring-2 ring-indigo-100'
+  const hoverClass = tone === 'sky' ? 'hover:border-sky-200' : 'hover:border-indigo-200'
 
   return (
     <div>
@@ -857,18 +862,18 @@ function PickerTriggerField({
       <button
         type="button"
         onClick={onClick}
-        className={`w-full rounded-2xl border-2 bg-white px-4 py-3 shadow-sm transition-all ${
+        className={`w-full rounded-2xl border-2 bg-white px-3 py-3 shadow-sm transition-all ${
           active
-            ? 'border-sky-300 shadow-sky-100'
-            : 'border-gray-200 hover:border-sky-200'
+            ? activeClass
+            : `border-gray-200 ${hoverClass}`
         }`}
       >
-        <span className="grid grid-cols-[24px_minmax(0,1fr)_24px] items-center gap-3">
+        <span className="grid grid-cols-[32px_minmax(0,1fr)_32px] items-center gap-2">
           <span className={`flex h-8 w-8 items-center justify-center rounded-xl ${accentClass} opacity-0`}>
             {icon}
           </span>
 
-          <span className="block truncate text-center text-lg font-semibold text-gray-800">
+          <span className="block truncate text-center text-base font-bold leading-none text-gray-800">
             {value}
           </span>
 
