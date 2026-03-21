@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { CalendarDays, Clock3, RefreshCw, X } from 'lucide-react'
+import {
+  CalendarDays,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  RefreshCw,
+  X,
+} from 'lucide-react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import { supabase } from './supabase'
 
@@ -110,6 +118,111 @@ function buildPastRecordPayload(isPastRecord, entryDate, entryTime, lateReason) 
     entryTime,
     lateReason,
   }
+}
+
+function pad2(value) {
+  return String(value).padStart(2, '0')
+}
+
+function parseDateInputValue(dateStr) {
+  if (typeof dateStr !== 'string') return null
+
+  const [year, month, day] = dateStr.split('-').map(Number)
+
+  if (!year || !month || !day) return null
+
+  const date = new Date(year, month - 1, day)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function parseTimeInputValue(timeStr) {
+  const fallback = nowInputTime()
+  const [fallbackHour, fallbackMinute] = fallback.split(':').map(Number)
+  const [rawHour, rawMinute] = typeof timeStr === 'string'
+    ? timeStr.split(':').map(Number)
+    : []
+
+  const hour =
+    Number.isInteger(rawHour) && rawHour >= 0 && rawHour <= 23
+      ? rawHour
+      : fallbackHour
+  const minute =
+    Number.isInteger(rawMinute) && rawMinute >= 0 && rawMinute <= 59
+      ? rawMinute
+      : fallbackMinute
+
+  return { hour, minute }
+}
+
+function toTimeValue(hour, minute) {
+  return `${pad2(hour)}:${pad2(minute)}`
+}
+
+function startOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
+function shiftMonth(date, amount) {
+  return new Date(date.getFullYear(), date.getMonth() + amount, 1)
+}
+
+function formatPickerDateValue(dateStr) {
+  const date = parseDateInputValue(dateStr)
+  if (!date) return 'Pilih tanggal'
+
+  return date.toLocaleDateString('id-ID', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function formatPickerTimeValue(timeStr) {
+  const { hour, minute } = parseTimeInputValue(timeStr)
+  return `${pad2(hour)}:${pad2(minute)}`
+}
+
+function formatPickerMonthLabel(date) {
+  return date.toLocaleDateString('id-ID', {
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+function getCalendarCells(viewMonth, maxDateStr) {
+  const firstDay = startOfMonth(viewMonth)
+  const daysInMonth = new Date(
+    viewMonth.getFullYear(),
+    viewMonth.getMonth() + 1,
+    0
+  ).getDate()
+  const maxDate = parseDateInputValue(maxDateStr)
+  const offset = (firstDay.getDay() + 6) % 7
+  const cells = []
+
+  for (let i = 0; i < offset; i += 1) {
+    cells.push({ type: 'empty', key: `empty-${i}` })
+  }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), day)
+    const dateStr = toDateInputValue(date)
+    const isDisabled = maxDate ? date > maxDate : false
+
+    cells.push({
+      type: 'day',
+      key: dateStr,
+      day,
+      dateStr,
+      isDisabled,
+    })
+  }
+
+  while (cells.length % 7 !== 0) {
+    cells.push({ type: 'empty', key: `tail-${cells.length}` })
+  }
+
+  return cells
 }
 
 function generateId() {
@@ -725,6 +838,274 @@ function NotesField({ value, onChange }) {
   )
 }
 
+function PickerTriggerField({
+  label,
+  value,
+  icon,
+  tone = 'sky',
+  active = false,
+  onClick,
+}) {
+  const accentClass =
+    tone === 'sky'
+      ? 'text-sky-500 bg-sky-50'
+      : 'text-indigo-500 bg-indigo-50'
+
+  return (
+    <div>
+      <p className="mb-2 text-sm text-gray-500">{label}</p>
+      <button
+        type="button"
+        onClick={onClick}
+        className={`w-full rounded-2xl border-2 bg-white px-4 py-3 shadow-sm transition-all ${
+          active
+            ? 'border-sky-300 shadow-sky-100'
+            : 'border-gray-200 hover:border-sky-200'
+        }`}
+      >
+        <span className="grid grid-cols-[24px_minmax(0,1fr)_24px] items-center gap-3">
+          <span className={`flex h-8 w-8 items-center justify-center rounded-xl ${accentClass} opacity-0`}>
+            {icon}
+          </span>
+
+          <span className="block truncate text-center text-lg font-semibold text-gray-800">
+            {value}
+          </span>
+
+          <span className={`flex h-8 w-8 items-center justify-center rounded-xl ${accentClass}`}>
+            {icon}
+          </span>
+        </span>
+      </button>
+    </div>
+  )
+}
+
+function DatePickerPanel({
+  value,
+  viewMonth,
+  onViewMonthChange,
+  onChange,
+  onClose,
+}) {
+  const selectedDate = value || today()
+  const selectedMonth = parseDateInputValue(selectedDate) || new Date()
+  const maxMonth = startOfMonth(new Date())
+  const prevMonth = shiftMonth(viewMonth, -1)
+  const nextMonth = shiftMonth(viewMonth, 1)
+  const canGoNext = nextMonth <= maxMonth
+  const weekdayLabels = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min']
+  const cells = getCalendarCells(viewMonth, today())
+
+  return (
+    <div className="mt-3 rounded-3xl border border-sky-100 bg-white p-4 shadow-sm">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => onViewMonthChange(prevMonth)}
+          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-200 bg-gray-50 text-gray-600"
+        >
+          <ChevronLeft size={18} />
+        </button>
+
+        <div className="min-w-0 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-500">
+            Kalender
+          </p>
+          <p className="truncate text-lg font-bold capitalize text-gray-800">
+            {formatPickerMonthLabel(viewMonth)}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => canGoNext && onViewMonthChange(nextMonth)}
+          disabled={!canGoNext}
+          className="flex h-10 w-10 items-center justify-center rounded-2xl border border-gray-200 bg-gray-50 text-gray-600 disabled:opacity-40"
+        >
+          <ChevronRight size={18} />
+        </button>
+      </div>
+
+      <div className="mb-2 grid grid-cols-7 gap-1">
+        {weekdayLabels.map(label => (
+          <div
+            key={label}
+            className="py-2 text-center text-xs font-semibold uppercase tracking-wide text-gray-400"
+          >
+            {label}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-1">
+        {cells.map(cell => {
+          if (cell.type === 'empty') {
+            return <div key={cell.key} className="aspect-square" />
+          }
+
+          const isSelected = cell.dateStr === selectedDate
+
+          return (
+            <button
+              key={cell.key}
+              type="button"
+              disabled={cell.isDisabled}
+              onClick={() => {
+                onChange(cell.dateStr)
+                onClose()
+              }}
+              className={`aspect-square rounded-2xl text-sm font-semibold transition-all ${
+                isSelected
+                  ? 'bg-sky-500 text-white shadow-md shadow-sky-200'
+                  : cell.isDisabled
+                    ? 'text-gray-300'
+                    : 'text-gray-700 hover:bg-sky-50'
+              }`}
+            >
+              {cell.day}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="mt-4 flex gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            const currentDate = today()
+            onChange(currentDate)
+            onViewMonthChange(startOfMonth(parseDateInputValue(currentDate) || new Date()))
+            onClose()
+          }}
+          className={`flex-1 rounded-2xl border px-4 py-3 text-sm font-semibold transition-all ${
+            selectedMonth.getFullYear() === new Date().getFullYear() &&
+            selectedMonth.getMonth() === new Date().getMonth() &&
+            selectedDate === today()
+              ? 'border-sky-200 bg-sky-50 text-sky-700'
+              : 'border-gray-200 bg-gray-50 text-gray-600'
+          }`}
+        >
+          Hari ini
+        </button>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-600"
+        >
+          Tutup
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function TimePickerPanel({ value, onChange, onClose }) {
+  const { hour, minute } = parseTimeInputValue(value)
+  const hours = Array.from({ length: 24 }, (_, index) => index)
+  const minutes = Array.from({ length: 60 }, (_, index) => index)
+
+  function updateHour(nextHour) {
+    onChange(toTimeValue(nextHour, minute))
+  }
+
+  function updateMinute(nextMinute) {
+    onChange(toTimeValue(hour, nextMinute))
+  }
+
+  return (
+    <div className="mt-3 rounded-3xl border border-indigo-100 bg-white p-4 shadow-sm">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-500">
+            Waktu
+          </p>
+          <p className="text-lg font-bold text-gray-800">Pilih jam kejadian</p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => onChange(nowInputTime())}
+          className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700"
+        >
+          Sekarang
+        </button>
+      </div>
+
+      <div className="mb-4 rounded-3xl bg-gradient-to-br from-indigo-50 to-sky-50 px-4 py-4 text-center">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-500">
+          Jam Terpilih
+        </p>
+        <p className="mt-1 text-3xl font-black tracking-[0.18em] text-gray-800">
+          {formatPickerTimeValue(value)}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-2xl bg-gray-50 p-3">
+          <p className="mb-3 text-center text-sm font-semibold text-gray-500">Jam</p>
+          <div className="grid max-h-44 grid-cols-4 gap-2 overflow-y-auto pr-1">
+            {hours.map(optionHour => {
+              const selected = optionHour === hour
+
+              return (
+                <button
+                  key={optionHour}
+                  type="button"
+                  onClick={() => updateHour(optionHour)}
+                  className={`rounded-2xl px-2 py-2 text-sm font-semibold transition-all ${
+                    selected
+                      ? 'bg-indigo-500 text-white shadow-md shadow-indigo-200'
+                      : 'bg-white text-gray-700 hover:bg-indigo-50'
+                  }`}
+                >
+                  {pad2(optionHour)}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-gray-50 p-3">
+          <p className="mb-3 text-center text-sm font-semibold text-gray-500">Menit</p>
+          <div className="grid max-h-44 grid-cols-4 gap-2 overflow-y-auto pr-1">
+            {minutes.map(optionMinute => {
+              const selected = optionMinute === minute
+
+              return (
+                <button
+                  key={optionMinute}
+                  type="button"
+                  onClick={() => updateMinute(optionMinute)}
+                  className={`rounded-2xl px-2 py-2 text-sm font-semibold transition-all ${
+                    selected
+                      ? 'bg-sky-500 text-white shadow-md shadow-sky-200'
+                      : 'bg-white text-gray-700 hover:bg-sky-50'
+                  }`}
+                >
+                  {pad2(optionMinute)}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex items-center gap-2 rounded-2xl bg-gray-800 px-4 py-3 text-sm font-semibold text-white"
+        >
+          <Check size={16} />
+          Selesai
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function EntryTimingFields({
   enabled,
   onEnabledChange,
@@ -735,6 +1116,24 @@ function EntryTimingFields({
   lateReason,
   onLateReasonChange,
 }) {
+  const [activePicker, setActivePicker] = useState(null)
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const selectedDate = parseDateInputValue(dateValue) || new Date()
+    return startOfMonth(selectedDate)
+  })
+
+  useEffect(() => {
+    if (!enabled) {
+      setActivePicker(null)
+      return
+    }
+
+    const selectedDate = parseDateInputValue(dateValue)
+    if (selectedDate) {
+      setCalendarMonth(startOfMonth(selectedDate))
+    }
+  }, [dateValue, enabled])
+
   return (
     <div className="mb-6">
       <label className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
@@ -767,36 +1166,49 @@ function EntryTimingFields({
           </p>
 
           <div className="mb-5 space-y-4">
-            <label className="block">
-              <div className="mb-2 flex items-center gap-2">
-                <CalendarDays size={16} className="text-sky-400" />
-                <p className="text-sm text-gray-500">Tanggal</p>
-              </div>
-              <div className="w-full max-w-full overflow-hidden rounded-2xl border-2 border-gray-200 bg-white">
-                <input
-                  type="date"
-                  value={dateValue}
-                  onChange={e => onDateChange(e.target.value)}
-                  max={today()}
-                  className="block w-full min-w-0 max-w-full bg-transparent px-4 py-3 text-[16px] text-gray-700 focus:outline-none"
-                />
-              </div>
-            </label>
+            <div>
+              <PickerTriggerField
+                label="Tanggal"
+                value={formatPickerDateValue(dateValue)}
+                icon={<CalendarDays size={16} />}
+                tone="sky"
+                active={activePicker === 'date'}
+                onClick={() =>
+                  setActivePicker(current => (current === 'date' ? null : 'date'))
+                }
+              />
 
-            <label className="block">
-              <div className="mb-2 flex items-center gap-2">
-                <Clock3 size={16} className="text-gray-400" />
-                <p className="text-sm text-gray-500">Jam</p>
-              </div>
-              <div className="w-full max-w-full overflow-hidden rounded-2xl border-2 border-gray-200 bg-white">
-                <input
-                  type="time"
-                  value={timeValue}
-                  onChange={e => onTimeChange(e.target.value)}
-                  className="block w-full min-w-0 max-w-full bg-transparent px-4 py-3 text-[16px] text-gray-700 focus:outline-none"
+              {activePicker === 'date' ? (
+                <DatePickerPanel
+                  value={dateValue}
+                  viewMonth={calendarMonth}
+                  onViewMonthChange={setCalendarMonth}
+                  onChange={onDateChange}
+                  onClose={() => setActivePicker(null)}
                 />
-              </div>
-            </label>
+              ) : null}
+            </div>
+
+            <div>
+              <PickerTriggerField
+                label="Jam"
+                value={formatPickerTimeValue(timeValue)}
+                icon={<Clock3 size={16} />}
+                tone="indigo"
+                active={activePicker === 'time'}
+                onClick={() =>
+                  setActivePicker(current => (current === 'time' ? null : 'time'))
+                }
+              />
+
+              {activePicker === 'time' ? (
+                <TimePickerPanel
+                  value={timeValue}
+                  onChange={onTimeChange}
+                  onClose={() => setActivePicker(null)}
+                />
+              ) : null}
+            </div>
           </div>
 
           <label className="block">
