@@ -766,19 +766,22 @@ function EntryTimingFields({
             Isi waktu kejadian yang sebenarnya, lalu tambahkan alasan kenapa baru dicatat sekarang.
           </p>
 
-          <div className="mb-4 flex items-end gap-3">
-            <label className="block min-w-0 flex-1">
-              <p className="mb-2 text-sm text-gray-500">Tanggal</p>
+          <div className="mb-5 space-y-4">
+            <label className="block">
+              <div className="mb-2 flex items-center gap-2">
+                <CalendarDays size={16} className="text-sky-400" />
+                <p className="text-sm text-gray-500">Tanggal</p>
+              </div>
               <input
                 type="date"
                 value={dateValue}
                 onChange={e => onDateChange(e.target.value)}
                 max={today()}
-                className="w-full min-w-0 rounded-2xl border-2 border-gray-200 bg-white px-4 py-3 text-base text-gray-700 focus:border-sky-400 focus:outline-none"
+                className="w-full rounded-2xl border-2 border-gray-200 bg-white px-4 py-3 text-base text-gray-700 focus:border-sky-400 focus:outline-none"
               />
             </label>
 
-            <label className="block w-32 shrink-0">
+            <label className="block">
               <div className="mb-2 flex items-center gap-2">
                 <Clock3 size={16} className="text-gray-400" />
                 <p className="text-sm text-gray-500">Jam</p>
@@ -787,7 +790,7 @@ function EntryTimingFields({
                 type="time"
                 value={timeValue}
                 onChange={e => onTimeChange(e.target.value)}
-                className="w-full min-w-0 rounded-2xl border-2 border-gray-200 bg-white px-3 py-3 text-base text-gray-700 focus:border-sky-400 focus:outline-none"
+                className="w-full rounded-2xl border-2 border-gray-200 bg-white px-4 py-3 text-base text-gray-700 focus:border-sky-400 focus:outline-none"
               />
             </label>
           </div>
