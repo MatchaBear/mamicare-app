@@ -102,6 +102,16 @@ function buildTimestampFromDateTime(dateStr, timeStr) {
   return Number.isFinite(timestamp) ? timestamp : Date.now()
 }
 
+function buildPastRecordPayload(isPastRecord, entryDate, entryTime, lateReason) {
+  if (!isPastRecord) return {}
+
+  return {
+    entryDate,
+    entryTime,
+    lateReason,
+  }
+}
+
 function generateId() {
   const base = Date.now() * 4096
 
@@ -139,6 +149,12 @@ const DRAG_ACTIVATION_PX = 8
 const AXIS_LOCK_RATIO = 1.15
 const RELEASE_ANIM_MS = 280
 const NOTE_META_PREFIX = '[[MC_META]]'
+const LOCAL_REVIEW_LOGS_KEY = 'mamicare_review_logs'
+const PRODUCTION_HOSTNAMES = new Set([
+  'mamicare-app.vercel.app',
+  'mamicare.ai',
+  'www.mamicare.ai',
+])
 
 const TYPE_CONFIG = {
   drink: { emoji: '💧', label: 'Minum' },
@@ -495,6 +511,51 @@ function clearStoredCurrentUser() {
   localStorage.removeItem('mamicare_user')
 }
 
+function getLocalReviewLogsStorageKey() {
+  if (typeof window === 'undefined') return LOCAL_REVIEW_LOGS_KEY
+  return `${LOCAL_REVIEW_LOGS_KEY}:${window.location.hostname}`
+}
+
+function getRemoteSyncEnabled() {
+  if (typeof window === 'undefined') return true
+  return PRODUCTION_HOSTNAMES.has(window.location.hostname)
+}
+
+function loadLocalReviewLogs() {
+  if (typeof window === 'undefined') return []
+
+  try {
+    const raw = localStorage.getItem(getLocalReviewLogsStorageKey())
+    if (!raw) return []
+
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+
+    return parsed
+      .map(item => normalizeLog(item))
+      .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
+  } catch (error) {
+    console.error('Gagal memuat catatan lokal:', error)
+    return []
+  }
+}
+
+function storeLocalReviewLogs(logs) {
+  if (typeof window === 'undefined') return
+
+  const key = getLocalReviewLogsStorageKey()
+
+  if (!Array.isArray(logs) || logs.length === 0) {
+    localStorage.removeItem(key)
+    return
+  }
+
+  localStorage.setItem(
+    key,
+    JSON.stringify(logs.map(log => serializeLog(log)))
+  )
+}
+
 function getDeviceInfo() {
   if (typeof navigator === 'undefined') return '🌐 Browser'
 
@@ -516,7 +577,11 @@ function getDeviceInfo() {
  * - Makes the main App component easier to read.
  */
 
-async function loadLogs() {
+async function loadLogs({ remoteSyncEnabled }) {
+  if (!remoteSyncEnabled) {
+    return loadLocalReviewLogs()
+  }
+
   const { data, error } = await supabase
     .from('logs')
     .select('*')
@@ -530,7 +595,13 @@ async function loadLogs() {
   return (data || []).map(normalizeLog)
 }
 
-async function saveLog(log) {
+async function saveLog(log, { remoteSyncEnabled }) {
+  if (!remoteSyncEnabled) {
+    const nextLogs = upsertLogInState(loadLocalReviewLogs(), log)
+    storeLocalReviewLogs(nextLogs)
+    return
+  }
+
   const { error } = await supabase.from('logs').upsert(serializeLog(log))
 
   if (error) {
@@ -539,7 +610,13 @@ async function saveLog(log) {
   }
 }
 
-async function deleteLog(id) {
+async function deleteLog(id, { remoteSyncEnabled }) {
+  if (!remoteSyncEnabled) {
+    const nextLogs = loadLocalReviewLogs().filter(log => log.id !== id)
+    storeLocalReviewLogs(nextLogs)
+    return
+  }
+
   const { error } = await supabase.from('logs').delete().eq('id', id)
 
   if (error) {
@@ -614,6 +691,17 @@ function UpdatePrompt() {
   )
 }
 
+function ReviewModeBanner() {
+  return (
+    <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm">
+      <p className="text-sm font-semibold text-amber-800">Mode Tinjauan Lokal</p>
+      <p className="mt-1 text-sm leading-relaxed text-amber-700">
+        Catatan di cabang ini hanya tersimpan di perangkat ini. Database utama tidak disentuh.
+      </p>
+    </div>
+  )
+}
+
 /* ============================================================
  * Reusable form bits
  * ============================================================
@@ -638,6 +726,8 @@ function NotesField({ value, onChange }) {
 }
 
 function EntryTimingFields({
+  enabled,
+  onEnabledChange,
   dateValue,
   timeValue,
   onDateChange,
@@ -646,58 +736,76 @@ function EntryTimingFields({
   onLateReasonChange,
 }) {
   return (
-    <div className="mb-6 bg-sky-50/70 border border-sky-100 rounded-2xl p-4">
-      <div className="flex items-start gap-3 mb-4">
-        <div className="w-10 h-10 shrink-0 rounded-2xl bg-white border border-sky-100 flex items-center justify-center shadow-sm">
-          <CalendarDays size={18} className="text-sky-500" />
-        </div>
+    <div className="mb-6">
+      <label className="flex items-start gap-3 rounded-2xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={e => onEnabledChange(e.target.checked)}
+          className="mt-1 h-5 w-5 shrink-0 rounded border-gray-300 text-sky-500 focus:ring-sky-400"
+        />
 
-        <div>
-          <p className="text-gray-700 font-semibold">Kapan ini terjadi?</p>
-          <p className="text-gray-500 text-sm leading-relaxed">
-            Bisa dipakai kalau catatan baru sempat diisi belakangan.
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-sky-50">
+              <CalendarDays size={16} className="text-sky-500" />
+            </div>
+
+            <p className="font-semibold text-gray-700">Buat catatan lampau</p>
+          </div>
+
+          <p className="mt-1 text-sm leading-relaxed text-gray-500">
+            Centang kalau kejadian ini sebenarnya terjadi di waktu sebelumnya.
           </p>
         </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 mb-4">
-        <label className="block">
-          <p className="text-gray-500 text-sm mb-2">Tanggal</p>
-          <input
-            type="date"
-            value={dateValue}
-            onChange={e => onDateChange(e.target.value)}
-            max={today()}
-            className="w-full border-2 border-gray-200 rounded-2xl px-4 py-3 text-base text-gray-700 focus:outline-none focus:border-sky-400 bg-white"
-          />
-        </label>
-
-        <label className="block">
-          <div className="flex items-center gap-2 mb-2">
-            <Clock3 size={16} className="text-gray-400" />
-            <p className="text-gray-500 text-sm">Jam</p>
-          </div>
-          <input
-            type="time"
-            value={timeValue}
-            onChange={e => onTimeChange(e.target.value)}
-            className="w-full border-2 border-gray-200 rounded-2xl px-4 py-3 text-base text-gray-700 focus:outline-none focus:border-sky-400 bg-white"
-          />
-        </label>
-      </div>
-
-      <label className="block">
-        <p className="text-gray-500 text-sm mb-2">
-          Kenapa baru dicatat sekarang? <span className="text-gray-400">(opsional)</span>
-        </p>
-        <input
-          type="text"
-          value={lateReason}
-          onChange={e => onLateReasonChange(e.target.value)}
-          placeholder="Contoh: baru sempat diinput malam hari"
-          className="w-full border-2 border-gray-200 rounded-2xl px-4 py-3 text-base text-gray-700 focus:outline-none focus:border-sky-400 bg-white"
-        />
       </label>
+
+      {enabled ? (
+        <div className="mt-3 rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
+          <p className="mb-3 text-sm text-gray-500">
+            Isi waktu kejadian yang sebenarnya, lalu tambahkan alasan kenapa baru dicatat sekarang.
+          </p>
+
+          <div className="mb-4 flex items-end gap-3">
+            <label className="block min-w-0 flex-1">
+              <p className="mb-2 text-sm text-gray-500">Tanggal</p>
+              <input
+                type="date"
+                value={dateValue}
+                onChange={e => onDateChange(e.target.value)}
+                max={today()}
+                className="w-full min-w-0 rounded-2xl border-2 border-gray-200 bg-white px-4 py-3 text-base text-gray-700 focus:border-sky-400 focus:outline-none"
+              />
+            </label>
+
+            <label className="block w-32 shrink-0">
+              <div className="mb-2 flex items-center gap-2">
+                <Clock3 size={16} className="text-gray-400" />
+                <p className="text-sm text-gray-500">Jam</p>
+              </div>
+              <input
+                type="time"
+                value={timeValue}
+                onChange={e => onTimeChange(e.target.value)}
+                className="w-full min-w-0 rounded-2xl border-2 border-gray-200 bg-white px-3 py-3 text-base text-gray-700 focus:border-sky-400 focus:outline-none"
+              />
+            </label>
+          </div>
+
+          <label className="block">
+            <p className="mb-2 text-sm text-gray-500">
+              Alasan baru dicatat sekarang <span className="text-gray-400">(opsional)</span>
+            </p>
+            <input
+              type="text"
+              value={lateReason}
+              onChange={e => onLateReasonChange(e.target.value)}
+              placeholder="Contoh: baru sempat diinput malam hari"
+              className="w-full rounded-2xl border-2 border-gray-200 bg-white px-4 py-3 text-base text-gray-700 focus:border-sky-400 focus:outline-none"
+            />
+          </label>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -910,6 +1018,7 @@ function DrinkModal({ onClose, onSave, saving = false }) {
   const [drinkKind, setDrinkKind] = useState(null)
   const [amount, setAmount] = useState(null)
   const [notes, setNotes] = useState('')
+  const [isPastRecord, setIsPastRecord] = useState(false)
   const [entryDate, setEntryDate] = useState(today())
   const [entryTime, setEntryTime] = useState(nowInputTime())
   const [lateReason, setLateReason] = useState('')
@@ -946,6 +1055,8 @@ function DrinkModal({ onClose, onSave, saving = false }) {
       />
 
       <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
         dateValue={entryDate}
         timeValue={entryTime}
         onDateChange={setEntryDate}
@@ -964,9 +1075,12 @@ function DrinkModal({ onClose, onSave, saving = false }) {
             type: drinkKind,
             amount,
             notes,
-            entryDate,
-            entryTime,
-            lateReason,
+            ...buildPastRecordPayload(
+              isPastRecord,
+              entryDate,
+              entryTime,
+              lateReason
+            ),
           })
         }
       />
@@ -985,6 +1099,7 @@ function MealModal({ onClose, onSave, saving = false }) {
   const [foodText, setFoodText] = useState('')
   const [portion, setPortion] = useState(null)
   const [notes, setNotes] = useState('')
+  const [isPastRecord, setIsPastRecord] = useState(false)
   const [entryDate, setEntryDate] = useState(today())
   const [entryTime, setEntryTime] = useState(nowInputTime())
   const [lateReason, setLateReason] = useState('')
@@ -1032,6 +1147,8 @@ function MealModal({ onClose, onSave, saving = false }) {
       />
 
       <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
         dateValue={entryDate}
         timeValue={entryTime}
         onDateChange={setEntryDate}
@@ -1051,9 +1168,12 @@ function MealModal({ onClose, onSave, saving = false }) {
             foodText,
             portion,
             notes,
-            entryDate,
-            entryTime,
-            lateReason,
+            ...buildPastRecordPayload(
+              isPastRecord,
+              entryDate,
+              entryTime,
+              lateReason
+            ),
           })
         }
       />
@@ -1072,6 +1192,7 @@ function MedModal({ onClose, onSave, saving = false }) {
   const [isOther, setIsOther] = useState(false)
   const [status, setStatus] = useState(null)
   const [notes, setNotes] = useState('')
+  const [isPastRecord, setIsPastRecord] = useState(false)
   const [entryDate, setEntryDate] = useState(today())
   const [entryTime, setEntryTime] = useState(nowInputTime())
   const [lateReason, setLateReason] = useState('')
@@ -1138,6 +1259,8 @@ function MedModal({ onClose, onSave, saving = false }) {
       />
 
       <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
         dateValue={entryDate}
         timeValue={entryTime}
         onDateChange={setEntryDate}
@@ -1156,9 +1279,12 @@ function MedModal({ onClose, onSave, saving = false }) {
             medName,
             status,
             notes,
-            entryDate,
-            entryTime,
-            lateReason,
+            ...buildPastRecordPayload(
+              isPastRecord,
+              entryDate,
+              entryTime,
+              lateReason
+            ),
           })
         }
       />
@@ -1171,6 +1297,7 @@ function GlucoseModal({ onClose, onSave, saving = false }) {
   const [context, setContext] = useState(null)
   const [symptoms, setSymptoms] = useState([])
   const [notes, setNotes] = useState('')
+  const [isPastRecord, setIsPastRecord] = useState(false)
   const [entryDate, setEntryDate] = useState(today())
   const [entryTime, setEntryTime] = useState(nowInputTime())
   const [lateReason, setLateReason] = useState('')
@@ -1229,6 +1356,8 @@ function GlucoseModal({ onClose, onSave, saving = false }) {
       />
 
       <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
         dateValue={entryDate}
         timeValue={entryTime}
         onDateChange={setEntryDate}
@@ -1248,9 +1377,12 @@ function GlucoseModal({ onClose, onSave, saving = false }) {
             context,
             symptoms,
             notes,
-            entryDate,
-            entryTime,
-            lateReason,
+            ...buildPastRecordPayload(
+              isPastRecord,
+              entryDate,
+              entryTime,
+              lateReason
+            ),
           })
         }
       />
@@ -1274,6 +1406,10 @@ function GlucoseTargetModal({
     String(initialTargets.postMealHigh)
   )
   const [notes, setNotes] = useState('')
+  const [isPastRecord, setIsPastRecord] = useState(false)
+  const [entryDate, setEntryDate] = useState(today())
+  const [entryTime, setEntryTime] = useState(nowInputTime())
+  const [lateReason, setLateReason] = useState('')
 
   const lowValue = Number(lowThreshold)
   const preMealValue = Number(preMealHigh)
@@ -1341,6 +1477,17 @@ function GlucoseTargetModal({
         </span>
       </div>
 
+      <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
+        dateValue={entryDate}
+        timeValue={entryTime}
+        onDateChange={setEntryDate}
+        onTimeChange={setEntryTime}
+        lateReason={lateReason}
+        onLateReasonChange={setLateReason}
+      />
+
       <NotesField value={notes} onChange={setNotes} />
 
       <SaveButton
@@ -1352,6 +1499,12 @@ function GlucoseTargetModal({
             preMealHigh: preMealValue,
             postMealHigh: postMealValue,
             notes,
+            ...buildPastRecordPayload(
+              isPastRecord,
+              entryDate,
+              entryTime,
+              lateReason
+            ),
           })
         }
       />
@@ -1368,6 +1521,7 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
   const [scheduleText, setScheduleText] = useState('')
   const [planStatus, setPlanStatus] = useState('active')
   const [notes, setNotes] = useState('')
+  const [isPastRecord, setIsPastRecord] = useState(false)
   const [entryDate, setEntryDate] = useState(today())
   const [entryTime, setEntryTime] = useState(nowInputTime())
   const [lateReason, setLateReason] = useState('')
@@ -1473,6 +1627,8 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
       ) : null}
 
       <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
         dateValue={entryDate}
         timeValue={entryTime}
         onDateChange={setEntryDate}
@@ -1495,9 +1651,12 @@ function MedicationPlanModal({ onClose, onSave, saving = false }) {
             scheduleText,
             planStatus,
             notes,
-            entryDate,
-            entryTime,
-            lateReason,
+            ...buildPastRecordPayload(
+              isPastRecord,
+              entryDate,
+              entryTime,
+              lateReason
+            ),
           })
         }
       />
@@ -1522,6 +1681,7 @@ function WoundModal({ onClose, onSave, saving = false }) {
   const [appearanceOther, setAppearanceOther] = useState('')
   const [dressingChanged, setDressingChanged] = useState(null)
   const [notes, setNotes] = useState('')
+  const [isPastRecord, setIsPastRecord] = useState(false)
   const [entryDate, setEntryDate] = useState(today())
   const [entryTime, setEntryTime] = useState(nowInputTime())
   const [lateReason, setLateReason] = useState('')
@@ -1610,6 +1770,8 @@ function WoundModal({ onClose, onSave, saving = false }) {
       </div>
 
       <EntryTimingFields
+        enabled={isPastRecord}
+        onEnabledChange={setIsPastRecord}
         dateValue={entryDate}
         timeValue={entryTime}
         onDateChange={setEntryDate}
@@ -1630,9 +1792,12 @@ function WoundModal({ onClose, onSave, saving = false }) {
             appearanceOther,
             dressingChanged,
             notes,
-            entryDate,
-            entryTime,
-            lateReason,
+            ...buildPastRecordPayload(
+              isPastRecord,
+              entryDate,
+              entryTime,
+              lateReason
+            ),
           })
         }
       />
@@ -2156,6 +2321,7 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const remoteSyncEnabled = getRemoteSyncEnabled()
 
   /* ---------------- Pull-to-refresh state ---------------- */
   const [pullRaw, setPullRaw] = useState(0)
@@ -2178,7 +2344,7 @@ export default function App() {
 
     async function init() {
       try {
-        const data = await loadLogs()
+        const data = await loadLogs({ remoteSyncEnabled })
         if (isMounted) setLogs(data)
       } finally {
         if (isMounted) setLoading(false)
@@ -2186,6 +2352,12 @@ export default function App() {
     }
 
     init()
+
+    if (!remoteSyncEnabled) {
+      return () => {
+        isMounted = false
+      }
+    }
 
     const channel = supabase
       .channel('logs-changes')
@@ -2212,7 +2384,7 @@ export default function App() {
       isMounted = false
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [remoteSyncEnabled])
 
   async function handleRefresh() {
     if (refreshingRef.current) return
@@ -2221,7 +2393,7 @@ export default function App() {
     setRefreshing(true)
 
     try {
-      const data = await loadLogs()
+      const data = await loadLogs({ remoteSyncEnabled })
       setLogs(data)
     } finally {
       const elapsed = Date.now() - startedAt
@@ -2429,7 +2601,7 @@ export default function App() {
       // Optimistic local update
       setLogs(prev => upsertLogInState(prev, newLog))
 
-      await saveLog(newLog)
+      await saveLog(newLog, { remoteSyncEnabled })
     } catch (error) {
       // Roll back optimistic insert if save failed
       setLogs(prev => prev.filter(log => log.id !== newLog.id))
@@ -2445,7 +2617,7 @@ export default function App() {
     setLogs(prev => prev.filter(log => log.id !== id))
 
     try {
-      await deleteLog(id)
+      await deleteLog(id, { remoteSyncEnabled })
       setDeleteTarget(null)
     } catch (error) {
       // Roll back if delete failed
@@ -2554,6 +2726,7 @@ export default function App() {
     preMealHigh,
     postMealHigh,
     notes,
+    ...timing
   }) {
     addLog({
       type: 'glucose_target',
@@ -2565,6 +2738,7 @@ export default function App() {
         preMealHigh,
         postMealHigh,
       },
+      ...timing,
     })
 
     setModal(null)
@@ -2795,6 +2969,8 @@ export default function App() {
               willChange: pullRaw > 0 ? 'transform' : undefined,
             }}
           >
+            {!remoteSyncEnabled ? <ReviewModeBanner /> : null}
+
             <DrinkCard logs={logs} onAdd={() => setModal('drink')} />
             <GlucoseCard
               logs={logs}
